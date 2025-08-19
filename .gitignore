@@ -1,0 +1,31 @@
+# 환경 변수
+.env
+.env.development
+.env.production
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 의존성
+node_modules/
+venv/
+__pycache__/
+
+# 빌드 파일
+build/
+dist/
+*.pyc
+
+# 로그
+*.log
+
+# IDE 설정
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 시스템 파일
+.DS_Store
+Thumbs.db 
