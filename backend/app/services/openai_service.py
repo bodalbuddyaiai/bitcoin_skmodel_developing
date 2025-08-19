@@ -413,7 +413,7 @@ class OpenAIService:
 {json.dumps(technical_indicators, indent=2, default=json_serializer)}
     
 3. 계정 정보: 사용 가능 증거금 확인용
-{json.dumps(market_data['account'], indent=2, default=json_serializer)}
+{json.dumps(market_data.get('account', {'message': '계정 정보가 제공되지 않음 (순수 시장 분석 모드)'}), indent=2, default=json_serializer)}
 
 ### 응답 형식:
 ## TRADING_DECISION

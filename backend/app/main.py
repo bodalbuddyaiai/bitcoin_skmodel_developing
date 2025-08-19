@@ -377,17 +377,10 @@ async def analyze_only():
             analysis_market_data['positions'] = []
             
             # account 정보에서 포지션 관련 정보 제거
+            # 분석만 실행 시 계정 정보 완전 제거 (포지션 정보뿐만 아니라 잔액 정보도 제거)
             if 'account' in analysis_market_data:
-                # 계정 잔액 정보는 유지하되, 포지션 관련 정보만 초기화
-                if 'positions' in analysis_market_data['account']:
-                    analysis_market_data['account']['positions'] = []
-                if 'position_info' in analysis_market_data['account']:
-                    analysis_market_data['account']['position_info'] = None
-                if 'current_position' in analysis_market_data['account']:
-                    analysis_market_data['account']['current_position'] = None
-                # unrealized_pnl도 0으로 설정 (포지션이 없으므로)
-                if 'unrealized_pnl' in analysis_market_data['account']:
-                    analysis_market_data['account']['unrealized_pnl'] = 0
+                # 계정 정보를 완전히 제거하여 AI가 잔액을 고려하지 않도록 함
+                del analysis_market_data['account']
             
             # 최상위 레벨의 포지션 관련 필드도 제거
             if 'current_position' in analysis_market_data:
@@ -397,8 +390,8 @@ async def analyze_only():
         
         print(f"\n=== 분석용 데이터 준비 완료 ===")
         print(f"포지션 정보 제거됨 - positions: {analysis_market_data.get('positions', [])}")
-        if 'account' in analysis_market_data:
-            print(f"계정 포지션 정보: {analysis_market_data['account'].get('positions', [])}")
+        print(f"계정 정보 제거됨 - account 필드 완전 삭제")
+        print(f"AI는 잔액 정보 없이 순수한 시장 분석만 수행")
         
         # AI 분석 실행 (현재 선택된 모델 사용, 포지션 없는 데이터로)
         try:

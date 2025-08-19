@@ -132,7 +132,7 @@ class ClaudeService:
     3) LEVERAGE: [15-90 정수] (HOLD 시 생략) : Take_Profit_ROE에 도달하는데 필요한 레버리지 결정
     4) STOP_LOSS_ROE: [소수점 1자리] (HOLD 시 생략) : 포지션 진입 시 예상 손절 라인 결정(위에서 결정한 레버리지를 계산에 적용하기 때문에 결국 진입 포시젼 사이즈의 순수 손절 % 비율임, 비트코인 가격 기준 1% 손절에 30배 레버리지라면 30% 손절이며 따라서 이 경우에는 "30%"라고 답변해야함)
     5) TAKE_PROFIT_ROE: [소수점 1자리] (HOLD 시 생략) : 포지션 진입 시 예상 도달 목표 라인 결정(위에서 결정한 레버리지를 계산에 적용하기 때문에 결국 진입 포지션 사이즈의 순수 목표 % 비율임, 비트코인 가격 기준 2% 익절에 30배 레버리지라면 60% 익절이며 따라서 이 경우에는 "60%"라고 답변해야함)
-    6) EXPECTED_MINUTES: [720] : 현재 추세와 시장을 분석했을 때 목표 take_profit_roe에 도달하는데 걸리는 예상 시간 결정(당분간 720분으로 고정)
+    6) EXPECTED_MINUTES: [60-720] : 현재 추세와 시장을 분석했을 때 목표 take_profit_roe에 도달하는데 걸리는 예상 시간 결정(최소 60분 이상 최대 720분 이내로 결정할 것)
 - 수수료는 포지션 진입과 청산 시 각각 0.04% 부담되며, 총 0.08% 부담됨. 포지션 크기에 비례하여 수수료가 부담되므로 레버리지를 높이면 수수료 부담이 증가함.(ex. 레버리지 10배 시 수수료 0.8% 부담)
 - 24시간 비트코인 가격 변동성이 5% 라면 올바른 방향을 맞췄을 경우 레버리지 50배 설정 시 250%(2.5배) 수익 가능
 - 변동성을 고려하여 레버리지, take_profit_roe, stop_loss_roe를 결정할 것. expected minutes 시간 내에 stop_loss_roe에 도달하지 않고 take_profit_roe에 도달하도록 할 것
@@ -190,7 +190,7 @@ POSITION_SIZE: [0.1-0.9] (HOLD 시 생략)
 LEVERAGE: [15-90 정수] (HOLD 시 생략)
 STOP_LOSS_ROE: [소수점 1자리] (HOLD 시 생략)
 TAKE_PROFIT_ROE: [소수점 1자리] (HOLD 시 생략)
-EXPECTED_MINUTES: [720] (HOLD 시 생략)
+EXPECTED_MINUTES: [60-720] (HOLD 시 생략)
 
 ## ANALYSIS_DETAILS
 **Step 1: 다중 시간대 추세 분석**
@@ -480,7 +480,7 @@ EXPECTED_MINUTES: [720] (HOLD 시 생략)
 {json.dumps(technical_indicators, indent=2, default=json_serializer)}
 
 **3. 계정 정보:**
-{json.dumps(market_data['account'], indent=2, default=json_serializer)}
+{json.dumps(market_data.get('account', {'message': '계정 정보가 제공되지 않음 (순수 시장 분석 모드)'}), indent=2, default=json_serializer)}
 
 위 데이터를 바탕으로 Extended Thinking을 활용하여 분석을 수행하고 수익을 극대화할 수 있는 최적의 거래 결정을 내려주세요. 심호흡하고 차근차근 생각하며 분석을 진행하고, 훌륭한 분석을 하면 $100000000000000000000 팁을 줄 것이고 답변을 잘하지 못하면 패널티를 줄거야."""
 
