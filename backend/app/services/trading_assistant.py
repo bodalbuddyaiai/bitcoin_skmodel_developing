@@ -1438,7 +1438,93 @@ class TradingAssistant:
                 'overall_alignment': None
             }
             
-            # 16. 시장 심리 지표
+            # 16. VWAP (Volume Weighted Average Price) 계산
+            # 세션별 VWAP - 기관 진입점 파악에 중요
+            if 'volume' in df.columns and len(df) > 0:
+                # 일일 VWAP (최근 24시간 또는 데이터 길이만큼)
+                vwap_period = min(1440, len(df))  # 1440분 = 24시간
+                recent_df = df.tail(vwap_period).copy()
+                
+                # Typical Price 계산
+                typical_price = (recent_df['high'] + recent_df['low'] + recent_df['close']) / 3
+                
+                # VWAP 계산
+                cumulative_tp_volume = (typical_price * recent_df['volume']).cumsum()
+                cumulative_volume = recent_df['volume'].cumsum()
+                
+                # 0으로 나누기 방지
+                cumulative_volume = cumulative_volume.replace(0, 1e-10)
+                vwap = cumulative_tp_volume / cumulative_volume
+                
+                current_vwap = vwap.iloc[-1] if not vwap.empty else df['close'].iloc[-1]
+                
+                # VWAP 대비 현재 가격 위치
+                vwap_deviation = ((df['close'].iloc[-1] - current_vwap) / current_vwap) * 100
+                
+                # VWAP 밴드 계산 (표준편차 기반)
+                vwap_std = typical_price.std()
+                vwap_upper = current_vwap + (2 * vwap_std)
+                vwap_lower = current_vwap - (2 * vwap_std)
+                
+                vwap_data = {
+                    'vwap': current_vwap,
+                    'vwap_upper': vwap_upper,
+                    'vwap_lower': vwap_lower,
+                    'deviation_percent': vwap_deviation,
+                    'price_position': 'above' if df['close'].iloc[-1] > current_vwap else 'below'
+                }
+            else:
+                vwap_data = {
+                    'vwap': df['close'].iloc[-1] if len(df) > 0 else 0,
+                    'vwap_upper': 0,
+                    'vwap_lower': 0,
+                    'deviation_percent': 0,
+                    'price_position': 'neutral'
+                }
+            
+            # 17. CVD (Cumulative Volume Delta) - 매수/매도 압력 측정
+            if len(df) >= 20:
+                # 간소화된 CVD 계산 (가격 변화 기반)
+                cvd_values = []
+                for i in range(1, min(20, len(df))):
+                    price_change = df['close'].iloc[-i] - df['close'].iloc[-i-1]
+                    volume = df['volume'].iloc[-i] if 'volume' in df.columns else 1
+                    
+                    # 가격이 상승했으면 매수 압력, 하락했으면 매도 압력
+                    if price_change > 0:
+                        cvd_values.append(volume)
+                    elif price_change < 0:
+                        cvd_values.append(-volume)
+                    else:
+                        cvd_values.append(0)
+                
+                cumulative_cvd = sum(cvd_values)
+                cvd_trend = 'bullish' if cumulative_cvd > 0 else 'bearish'
+                
+                # CVD 다이버전스 체크
+                cvd_divergence = None
+                if len(df) >= 30:
+                    # 가격 추세와 CVD 추세 비교
+                    price_trend = df['close'].iloc[-1] - df['close'].iloc[-30]
+                    
+                    if price_trend > 0 and cumulative_cvd < 0:
+                        cvd_divergence = 'bearish'  # 가격 상승하나 매도 압력 우세
+                    elif price_trend < 0 and cumulative_cvd > 0:
+                        cvd_divergence = 'bullish'  # 가격 하락하나 매수 압력 우세
+                
+                cvd_data = {
+                    'cumulative_delta': cumulative_cvd,
+                    'trend': cvd_trend,
+                    'divergence': cvd_divergence
+                }
+            else:
+                cvd_data = {
+                    'cumulative_delta': 0,
+                    'trend': 'neutral',
+                    'divergence': None
+                }
+            
+            # 18. 시장 심리 지표
             # 기본 불공포 지수 계산 (간소화된 버전)
             if len(df) >= 30:
                 # 변동성 요소
@@ -1774,7 +1860,9 @@ class TradingAssistant:
                 "harmonic_patterns": harmonic_patterns,
                 "volume_profile": volume_profile_data,
                 "mat": mat_data,
-                "timeframe_consistency": timeframe_consistency
+                "timeframe_consistency": timeframe_consistency,
+                "vwap": vwap_data,
+                "cvd": cvd_data
             }
         except Exception as e:
             print(f"Error calculating technical indicators: {str(e)}")

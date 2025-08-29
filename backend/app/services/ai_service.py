@@ -10,7 +10,7 @@ class AIService:
     def set_model(self, model_type):
         """AI 모델 설정
         Args:
-            model_type (str): 모델 타입 ('openai', 'claude', 'claude-opus')
+            model_type (str): 모델 타입 ('openai', 'claude', 'claude-opus', 'claude-opus-4.1')
         """
         if model_type in ['openai', 'gpt']:
             self.current_model = 'openai'
@@ -22,6 +22,10 @@ class AIService:
             self.current_model = 'claude-opus'
             # Claude 서비스에 모델 타입 설정
             self.claude_service.set_model_type('claude-opus')
+        elif model_type in ['claude-opus-4.1', 'opus-4.1']:
+            self.current_model = 'claude-opus-4.1'
+            # Claude 서비스에 모델 타입 설정
+            self.claude_service.set_model_type('claude-opus-4.1')
         else:
             print(f"알 수 없는 모델 타입: {model_type}")
             return False
@@ -45,7 +49,7 @@ class AIService:
         
         if self.current_model == "gpt":
             return await self.openai_service.analyze_market_data(market_data)
-        elif self.current_model in ["claude", "claude-opus"]:
+        elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1"]:
             return await self.claude_service.analyze_market_data(market_data)
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}")
@@ -54,7 +58,7 @@ class AIService:
         """선택된 AI 모델로 포지션 모니터링"""
         if self.current_model == "gpt":
             return await self.openai_service.monitor_position(market_data, position_info)
-        elif self.current_model in ["claude", "claude-opus"]:
+        elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1"]:
             return await self.claude_service.monitor_position(market_data, position_info)
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}") 

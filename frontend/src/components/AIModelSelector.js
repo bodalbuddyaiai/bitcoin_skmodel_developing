@@ -95,7 +95,9 @@ const AIModelSelector = () => {
       case 'claude':
         return 'Anthropic Claude-4-Sonnet 모델을 사용하여 시장 분석을 수행합니다.';
       case 'claude-opus':
-        return 'Anthropic Claude-Opus-4 모델을 사용하여 시장 분석을 수행합니다. (최고 성능)';
+        return 'Anthropic Claude-Opus-4 모델을 사용하여 시장 분석을 수행합니다. (고성능)';
+      case 'claude-opus-4.1':
+        return 'Anthropic Claude-Opus-4.1 모델을 사용하여 시장 분석을 수행합니다. (최신 최고 성능, 우수한 추론 능력)';
       default:
         return '';
     }
@@ -109,6 +111,8 @@ const AIModelSelector = () => {
         return 'secondary';
       case 'claude-opus':
         return 'warning';
+      case 'claude-opus-4.1':
+        return 'error';
       default:
         return 'default';
     }
@@ -187,10 +191,24 @@ const AIModelSelector = () => {
               label={
                 <Box>
                   <Typography variant="body2" fontWeight="bold">
-                    Claude-Opus-4 (Anthropic) 🏆
+                    Claude-Opus-4 (Anthropic) ⭐
                   </Typography>
                   <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                    Anthropic의 최고 성능 Claude-Opus-4 모델 사용
+                    Anthropic의 고성능 Claude-Opus-4 모델 사용
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel 
+              value="claude-opus-4.1" 
+              control={<Radio />} 
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">
+                    Claude-Opus-4.1 (Anthropic) 🏆
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                    Anthropic의 최신 최고 성능 모델 - 우수한 추론 능력
                   </Typography>
                 </Box>
               }
