@@ -128,7 +128,7 @@ class TradingAssistant:
         self.is_monitoring = False
         self.monitoring_start_time = None
         self.monitoring_end_time = None
-        self.monitoring_interval = 2300  # 31분에서 15분으로 변경
+        self.monitoring_interval = 240  # 4시간(240분)마다 모니터링
         
         # 포지션 관련 변수 초기화
         self._position_entry_time = None
@@ -167,6 +167,169 @@ class TradingAssistant:
         """현재 AI 모델 반환"""
         return self.ai_service.get_current_model()
 
+    async def _force_close_position_with_reschedule(self, job_id, reason="모니터링 분석 결과"):
+        """포지션 방향과 반대 신호 시 강제 청산 후 60분 후 재분석"""
+        try:
+            print(f"\n=== 강제 청산 작업 시작 (Job ID: {job_id}) ===")
+            print(f"청산 사유: {reason}")
+            
+            # 현재 포지션 확인
+            positions = self.bitget.get_positions()
+            if not positions or 'data' not in positions:
+                print("포지션 정보를 가져올 수 없음")
+                return
+                
+            # 포지션이 있는 경우에만 청산 실행
+            has_position = False
+            position_size = 0
+            position_side = None
+            
+            for pos in positions['data']:
+                if float(pos.get('total', 0)) > 0:
+                    has_position = True
+                    position_size = float(pos.get('total', 0))
+                    position_side = pos.get('holdSide')
+                    print(f"\n=== 포지션 청산 상세 ===")
+                    print(f"포지션 방향: {position_side}")
+                    print(f"포지션 크기: {position_size} BTC")
+                    break
+            
+            if not has_position:
+                print("청산할 포지션이 없음")
+                return
+            
+            # Flash Close API를 사용하여 포지션 청산
+            close_result = self.bitget.close_positions(hold_side=position_side)
+            print(f"청산 결과: {close_result}")
+            
+            # 청산 성공 여부 확인
+            is_success = close_result.get('success', False)
+            
+            # 청산 성공 확인을 위해 포지션 재확인
+            verification_positions = self.bitget.get_positions()
+            current_position_size = 0
+            if verification_positions and 'data' in verification_positions:
+                for pos in verification_positions['data']:
+                    current_position_size += float(pos.get('total', 0))
+            
+            if is_success and current_position_size < position_size:
+                print("강제 청산 완료")
+                
+                # 모니터링 중지
+                self._stop_monitoring()
+                
+                # 기존 예약 작업 모두 취소
+                print("예약된 분석 작업을 취소합니다.")
+                self._cancel_scheduled_analysis()
+                self.cancel_all_jobs()
+                
+                # 60분 후 새로운 분석 예약
+                next_analysis_time = datetime.now() + timedelta(minutes=60)
+                new_job_id = str(uuid.uuid4())
+                
+                print(f"\n=== 강제 청산 후 새로운 분석 예약 ===")
+                print(f"예약 시간: {next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"작업 ID: {new_job_id}")
+                
+                # 비동기 함수를 실행하기 위한 래퍼 함수
+                def analysis_wrapper(job_id, analysis_time):
+                    """비동기 분석 함수를 실행하기 위한 래퍼"""
+                    print(f"\n=== 분석 래퍼 실행 (ID: {job_id}) ===")
+                    print(f"실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    # 새로운 이벤트 루프 생성 및 설정
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    try:
+                        # 비동기 함수를 동기적으로 실행
+                        loop.run_until_complete(self.analyze_and_execute(job_id, schedule_next=True))
+                    except Exception as e:
+                        print(f"분석 작업 실행 중 오류: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        
+                        # 오류 발생 시 60분 후 재분석 예약
+                        def schedule_retry():
+                            retry_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(retry_loop)
+                            try:
+                                retry_loop.run_until_complete(
+                                    self._schedule_next_analysis_on_error(f"강제 청산 후 분석 작업 {job_id} 실행 중 오류: {str(e)}")
+                                )
+                            except Exception as retry_error:
+                                print(f"재시도 예약 중 오류: {str(retry_error)}")
+                            finally:
+                                retry_loop.close()
+                        
+                        # 별도 스레드에서 재시도 예약 실행
+                        import threading
+                        retry_thread = threading.Thread(target=schedule_retry)
+                        retry_thread.daemon = True
+                        retry_thread.start()
+                    finally:
+                        # 이벤트 루프 종료
+                        loop.close()
+                
+                # 스케줄러에 작업 추가
+                self.scheduler.add_job(
+                    analysis_wrapper,
+                    'date',
+                    run_date=next_analysis_time,
+                    id=new_job_id,
+                    args=[new_job_id, next_analysis_time],
+                    misfire_grace_time=300  # 5분의 유예 시간
+                )
+                
+                # 활성 작업에 추가
+                self.active_jobs[new_job_id] = {
+                    "type": JobType.ANALYSIS,
+                    "scheduled_time": next_analysis_time.isoformat(),
+                    "status": "scheduled",
+                    "metadata": {
+                        "reason": f"{reason} 후 청산 및 자동 재시작",
+                        "misfire_grace_time": 300
+                    }
+                }
+                
+                # 청산 메시지 웹소켓으로 전송
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast({
+                        "type": "force_close",
+                        "event_type": "FORCE_CLOSE",
+                        "data": {
+                            "success": True,
+                            "message": f"{reason}로 인해 포지션이 청산되었습니다. 60분 후 새로운 분석이 실행됩니다.",
+                            "close_reason": reason,
+                            "next_analysis": {
+                                "job_id": new_job_id,
+                                "scheduled_time": next_analysis_time.isoformat(),
+                                "reason": "모니터링 청산 후 자동 재시작",
+                                "expected_minutes": 60
+                            }
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    })
+                
+                # 포지션 관련 상태 초기화
+                self._position_entry_time = None
+                self._expected_close_time = None
+                self._position_entry_price = None
+                self._stop_loss_price = None
+                self._take_profit_price = None
+                
+                print("포지션 관련 상태가 초기화되었습니다.")
+                print(f"60분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
+                
+            else:
+                print("강제 청산 실패 또는 부분 청산됨")
+                # 청산 실패 시 15분 후 다시 시도할 수도 있음
+                    
+        except Exception as e:
+            print(f"강제 청산 작업 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
     async def _force_close_position(self, job_id):
         """Expected Time에 도달했을 때 포지션 강제 청산"""
         try:
@@ -459,10 +622,8 @@ class TradingAssistant:
                         "24h_volume": float(ticker_data['baseVolume']),
                     },
                     "candlesticks": {},
-                    "technical_indicators": {},
-                    "account": {},
-                    "positions": [],
-                    "orderbook": {}
+                    "technical_indicators": {}
+                    # account, positions, orderbook 제거 - AI에게 전달하지 않음
                 }
                 
                 # 2. 여러 시간대의 캔들스틱 데이터 수집
@@ -518,17 +679,13 @@ class TradingAssistant:
                         formatted_data['candlesticks'][timeframe] = []
                         formatted_data['technical_indicators'][timeframe] = {}
                 
-                # 3. 나머지 데이터 수집 및 포맷팅
-                print("\n계정 및 포지션 데이터 수집 중...")
-                account_info = self.bitget.get_account_info()
+                # 3. 포지션 데이터만 내부 관리용으로 수집 (AI에게는 전달 안 함)
+                print("\n포지션 데이터 수집 중 (내부 관리용)...")
                 positions = self.bitget.get_positions()
-                orderbook = self.bitget.get_orderbook()
+                # account, orderbook 데이터 수집 제거 - AI에게 전달하지 않음
                 
-                formatted_data.update({
-                    "account": self._format_account_data(account_info),
-                    "positions": self._format_position_data(positions),
-                    "orderbook": self._format_orderbook_data(orderbook)
-                })
+                # 포지션 정보는 내부 관리용으로만 포맷팅 (formatted_data에 추가하지 않음)
+                self._format_position_data(positions)  # 내부 상태 업데이트용
                 
                 print("=== 시장 데이터 수집 완료 ===\n")
                 return formatted_data
@@ -575,6 +732,8 @@ class TradingAssistant:
             return []
 
     def _format_account_data(self, account_info):
+        """계정 데이터 포맷팅 - 더 이상 사용하지 않음 (AI에게 전달 안 함)"""
+        # 이 메서드는 더 이상 사용되지 않지만, 향후 필요시 사용할 수 있도록 유지
         try:
             if not account_info:
                 return self._get_default_account_data()
@@ -641,7 +800,8 @@ class TradingAssistant:
             return []
 
     def _format_orderbook_data(self, orderbook):
-        """호가창 데이터 포맷팅"""
+        """호가창 데이터 포맷팅 - 더 이상 사용하지 않음 (AI에게 전달 안 함)"""
+        # 이 메서드는 더 이상 사용되지 않지만, 향후 필요시 사용할 수 있도록 유지
         try:
             if not orderbook or 'data' not in orderbook:
                 return {}
@@ -1899,13 +2059,13 @@ class TradingAssistant:
                 )
                 
                 if trade_result.get('success'):
-                    # expected_minutes 그대로 적용 (기본값만 240으로 설정)
+                    # expected_minutes는 참고용으로만 저장
                     expected_minutes = analysis_result.get('expected_minutes', 240)
                     
-                    # 모니터링 시작
+                    # 4시간마다 모니터링 시작
                     await self._start_position_monitoring(
-                        expected_minutes=expected_minutes,
-                        monitoring_interval=self.monitoring_interval
+                        expected_minutes=expected_minutes,  # 참고용
+                        monitoring_interval=240  # 4시간 고정
                     )
             elif analysis_result['action'] == 'HOLD':
                 # HOLD 결과 처리
@@ -2066,13 +2226,14 @@ class TradingAssistant:
         try:
             print(f"\n=== 포지션 모니터링 시작 ===")
             print(f"예상 유지 시간: {expected_minutes}분")
-            print(f"모니터링 주기: {monitoring_interval}분")
+            print(f"모니터링 주기: {monitoring_interval}분 (4시간마다)")
             
             self.monitoring_start_time = datetime.now()
-            self.monitoring_end_time = self.monitoring_start_time + timedelta(minutes=expected_minutes)
+            # expected_minutes는 무시하고 모니터링 계속 진행
+            self.monitoring_end_time = None  # 종료 시간 설정하지 않음
             
             print(f"모니터링 시작 시간: {self.monitoring_start_time}")
-            print(f"모니터링 종료 예정 시간: {self.monitoring_end_time}")
+            print(f"모니터링 종료 조건: 포지션 방향과 분석 결과가 반대일 때")
             
             self.is_monitoring = True
             
@@ -2108,41 +2269,32 @@ class TradingAssistant:
             self.is_monitoring = False
 
     def _monitor_position_periodically(self, job_id):
-        """주기적 포지션 모니터링 실행"""
+        """주기적 포지션 모니터링 실행 (4시간마다)"""
         try:
             if not self.is_monitoring:
                 print("모니터링이 중지되었습니다.")
                 return
                 
-            print(f"\n=== 주기적 모니터링 실행 (Job ID: {job_id}) ===")
+            print(f"\n=== 4시간 주기 모니터링 실행 (Job ID: {job_id}) ===")
             
-            # 현재 시간이 모니터링 종료 시간을 초과했는지 확인
             current_time = datetime.now()
-            
-            # expected_minutes 계산 (모니터링 시작 시간과 종료 시간의 차이)
-            if self.monitoring_start_time and self.monitoring_end_time:
-                expected_minutes = (self.monitoring_end_time - self.monitoring_start_time).total_seconds() / 60
-                print(f"설정된 예상 유지 시간: {expected_minutes:.1f}분")
-            
             print(f"현재 시간: {current_time}")
-            print(f"모니터링 종료 시간: {self.monitoring_end_time}")
-            print(f"남은 시간: {(self.monitoring_end_time - current_time).total_seconds() / 60:.2f}분")
             
-            if current_time > self.monitoring_end_time:
-                print("예상 유지 시간이 종료되었습니다. 포지션을 청산합니다.")
-                # 비동기 함수를 동기적으로 실행하기 위한 이벤트 루프 생성
-                close_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(close_loop)
-                try:
-                    close_loop.run_until_complete(
-                        self._force_close_position(job_id)
-                    )
-                finally:
-                    close_loop.close()
+            # 현재 포지션 정보 확인
+            position_info = self._get_position_info()
+            
+            if not position_info or position_info['size'] == 0:
+                print("활성 포지션이 없습니다. 모니터링을 중단합니다.")
+                self._stop_monitoring()
                 return
             
+            current_position_side = position_info['side']  # 'long' 또는 'short'
+            print(f"현재 포지션: {current_position_side.upper()}")
+            print(f"포지션 크기: {position_info['size']}")
+            print(f"진입 가격: {position_info['entry_price']}")
+            print(f"현재 수익률: {position_info['roe']:.2f}%")
+            
             # 현재 시장 데이터 수집
-            # 비동기 함수를 동기적으로 실행하기 위한 이벤트 루프 생성
             market_data_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(market_data_loop)
             try:
@@ -2152,39 +2304,55 @@ class TradingAssistant:
             finally:
                 market_data_loop.close()
             
-            # 현재 포지션 정보 수집
-            position_info = self._get_position_info()
+            # 초기 분석과 동일한 AI 모델과 프롬프트로 재분석 실행
+            print(f"\n=== AI 재분석 실행 (모델: {self.ai_service.get_current_model()}) ===")
             
-            if not position_info:
-                print("활성 포지션이 없습니다. 모니터링을 중단합니다.")
-                self._stop_monitoring()
-                return
-            
-            # AI 모니터링 분석 실행
-            # 비동기 함수를 동기적으로 실행하기 위한 이벤트 루프 생성
-            monitor_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(monitor_loop)
+            # analyze_market_data 메서드 사용 (monitor_position 대신)
+            analysis_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(analysis_loop)
             try:
-                monitoring_result = monitor_loop.run_until_complete(
-                    self.ai_service.monitor_position(market_data, position_info)
+                analysis_result = analysis_loop.run_until_complete(
+                    self.ai_service.analyze_market_data(market_data)
                 )
             finally:
-                monitor_loop.close()
+                analysis_loop.close()
             
-            # 분석 결과에 따른 처리
-            if monitoring_result['action'] == 'CLOSE_POSITION':
-                print("AI가 포지션 청산을 권장합니다.")
-                # 비동기 함수를 동기적으로 실행하기 위한 이벤트 루프 생성
+            print(f"\n=== 모니터링 분석 결과 ===")
+            print(f"AI 분석 액션: {analysis_result['action']}")
+            print(f"AI 분석 이유: {analysis_result.get('reason', 'N/A')[:200]}...")
+            
+            # 포지션 방향과 분석 결과 비교
+            should_close = False
+            close_reason = ""
+            
+            if current_position_side == 'long' and analysis_result['action'] == 'ENTER_SHORT':
+                should_close = True
+                close_reason = "롱 포지션 중이나 AI가 숏 신호를 제시"
+            elif current_position_side == 'short' and analysis_result['action'] == 'ENTER_LONG':
+                should_close = True
+                close_reason = "숏 포지션 중이나 AI가 롱 신호를 제시"
+            elif analysis_result['action'] == 'HOLD':
+                print("AI가 HOLD를 제시했으므로 현재 포지션을 유지합니다.")
+            else:
+                print(f"AI가 같은 방향({analysis_result['action']})을 제시했으므로 포지션을 유지합니다.")
+            
+            # 포지션 청산 처리
+            if should_close:
+                print(f"\n⚠️ 포지션 청산 필요: {close_reason}")
+                print("포지션을 강제 청산합니다.")
+                
+                # 강제 청산 실행
                 close_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(close_loop)
                 try:
                     close_loop.run_until_complete(
-                        self._force_close_position(job_id)
+                        self._force_close_position_with_reschedule(job_id, close_reason)
                     )
                 finally:
                     close_loop.close()
             else:
-                print("AI가 포지션 유지를 권장합니다.")
+                print("\n✅ 포지션 유지: 현재 포지션 방향과 AI 분석이 일치하거나 HOLD 신호")
+                print(f"다음 모니터링: 4시간 후")
                 
             # 웹소켓으로 모니터링 결과 전송
             # 비동기 함수를 동기적으로 실행하기 위한 이벤트 루프 생성

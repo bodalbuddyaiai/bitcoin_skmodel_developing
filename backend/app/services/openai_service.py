@@ -10,7 +10,7 @@ class OpenAIService:
     def __init__(self):
         self.client = OpenAI(api_key=OPENAI_API_KEY)
         self.assistant_id = "asst_uEs555PIWD31LYyoSNgt0nTf"
-        self.monitoring_interval = 2300  # 기본 모니터링 주기 (분) - 61분에서 31분으로 변경
+        self.monitoring_interval = 240  # 기본 모니터링 주기 (4시간)
 
     def initialize_thread(self):
         """이제 메서드마다 새 스레드가 생성되므로 이 메서드는 필요 없음"""
@@ -411,9 +411,6 @@ class OpenAIService:
     - Volume-price correlation
     - Trend persistence & reliability assessment
 {json.dumps(technical_indicators, indent=2, default=json_serializer)}
-    
-3. 계정 정보: 사용 가능 증거금 확인용
-{json.dumps(market_data.get('account', {'message': '계정 정보가 제공되지 않음 (순수 시장 분석 모드)'}), indent=2, default=json_serializer)}
 
 ### 응답 형식:
 ## TRADING_DECISION
