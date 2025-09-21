@@ -341,8 +341,8 @@ class BitgetService:
             side: 주문 방향 (buy/sell)
             expected_minutes: 예상 보유 시간 (분)
             leverage: 레버리지 배수 (기본값: 5)
-            stop_loss_roe: Stop Loss ROE % (기본값: 5.0)
-            take_profit_roe: Take Profit ROE % (기본값: 10.0)
+            stop_loss_roe: Stop Loss 가격 변동률 % (AI가 제공한 값)
+            take_profit_roe: Take Profit 가격 변동률 % (AI가 제공한 값)
         """
         try:
             # 새로운 포지션 생성 시 청산 로그 플래그 리셋
@@ -360,12 +360,13 @@ class BitgetService:
             
             actual_leverage = float(leverage_result['data']['longLeverage'])
             
+            # AI가 제공한 가격 변동률을 그대로 사용
             if side == "buy":
-                stop_loss_price = round(current_price * (1 - (stop_loss_roe / 100 / actual_leverage)), 1)
-                take_profit_price = round(current_price * (1 + (take_profit_roe / 100 / actual_leverage)), 1)
+                stop_loss_price = round(current_price * (1 - (stop_loss_roe / 100)), 1)
+                take_profit_price = round(current_price * (1 + (take_profit_roe / 100)), 1)
             else:
-                stop_loss_price = round(current_price * (1 + (stop_loss_roe / 100 / actual_leverage)), 1)
-                take_profit_price = round(current_price * (1 - (take_profit_roe / 100 / actual_leverage)), 1)
+                stop_loss_price = round(current_price * (1 + (stop_loss_roe / 100)), 1)
+                take_profit_price = round(current_price * (1 - (take_profit_roe / 100)), 1)
             
             endpoint = "/api/v2/mix/order/place-order"
             body = {

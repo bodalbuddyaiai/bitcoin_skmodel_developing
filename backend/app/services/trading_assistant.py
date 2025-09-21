@@ -2938,22 +2938,21 @@ class TradingAssistant:
             print(f"최종 포지션 크기(USDT): {final_position_size}")
             print(f"최종 포지션 크기(BTC): {final_position_size/current_price}")
             
-            # ROE 값 조정
-            original_stop_loss_roe = stop_loss_roe if stop_loss_roe is not None else 5.0
-            original_take_profit_roe = take_profit_roe if take_profit_roe is not None else 10.0
+            # AI가 제공한 ROE는 실제 가격 변동률(%)
+            # 포지션 ROE = 가격 변동률 × 레버리지
+            price_stop_loss_pct = stop_loss_roe if stop_loss_roe is not None else 5.0  # AI가 제공한 값 그대로 사용 (가격 변동률)
+            price_take_profit_pct = take_profit_roe if take_profit_roe is not None else 10.0  # AI가 제공한 값 그대로 사용 (가격 변동률)
             
-            # 레버리지에 따른 동적 조정값 계산 (0.15 * 레버리지)
-            leverage_adjustment = 0.1 * leverage
+            # 포지션 기준 ROE 계산 (표시용)
+            position_stop_loss_roe = price_stop_loss_pct * leverage
+            position_take_profit_roe = price_take_profit_pct * leverage
             
-            # Stop Loss는 AI 답변보다 leverage_adjustment 더 크게, Take Profit은 leverage_adjustment 작게 조정
-            adjusted_stop_loss_roe = original_stop_loss_roe + leverage_adjustment
-            adjusted_take_profit_roe = original_take_profit_roe - leverage_adjustment
-            
-            print("\n=== ROE 값 조정 ===")
+            print("\n=== ROE 값 처리 ===")
             print(f"레버리지: {leverage}x")
-            print(f"조정값 (0.1 * 레버리지): {leverage_adjustment}%")
-            print(f"Stop Loss ROE: {original_stop_loss_roe}% -> {adjusted_stop_loss_roe}%")
-            print(f"Take Profit ROE: {original_take_profit_roe}% -> {adjusted_take_profit_roe}%")
+            print(f"가격 변동률 - Stop Loss: {price_stop_loss_pct}%")
+            print(f"가격 변동률 - Take Profit: {price_take_profit_pct}%")
+            print(f"포지션 ROE - Stop Loss: -{position_stop_loss_roe:.1f}% (레버리지 적용)")
+            print(f"포지션 ROE - Take Profit: +{position_take_profit_roe:.1f}% (레버리지 적용)")
             
             # API 요청 간격 제한 (0.2초)
             await asyncio.sleep(0.2)
@@ -2976,15 +2975,15 @@ class TradingAssistant:
             expected_close_time = datetime.now() + timedelta(minutes=expected_minutes)
             print(f"Expected close time: {expected_close_time}")
             
-            # 거래 실행
+            # 거래 실행 - AI의 가격 변동률을 그대로 전달
             if action == 'ENTER_LONG':
                 order_result = self.bitget.place_order(
                     size=str(final_position_size/current_price),
                     side="buy",
                     expected_minutes=expected_minutes,
                     leverage=leverage,
-                    stop_loss_roe=adjusted_stop_loss_roe,
-                    take_profit_roe=adjusted_take_profit_roe
+                    stop_loss_roe=price_stop_loss_pct,  # 가격 변동률 그대로 전달
+                    take_profit_roe=price_take_profit_pct  # 가격 변동률 그대로 전달
                 )
             elif action == 'ENTER_SHORT':
                 order_result = self.bitget.place_order(
@@ -2992,8 +2991,8 @@ class TradingAssistant:
                     side="sell",
                     expected_minutes=expected_minutes,
                     leverage=leverage,
-                    stop_loss_roe=adjusted_stop_loss_roe,
-                    take_profit_roe=adjusted_take_profit_roe
+                    stop_loss_roe=price_stop_loss_pct,  # 가격 변동률 그대로 전달
+                    take_profit_roe=price_take_profit_pct  # 가격 변동률 그대로 전달
                 )
             else:
                 raise Exception(f"지원하지 않는 액션: {action}")
@@ -3010,20 +3009,20 @@ class TradingAssistant:
                 self._position_entry_price = current_price
                 self._last_position_side = 'long' if action == 'ENTER_LONG' else 'short'
                 
-                # 스탑로스/익절가 설정
-                if stop_loss_roe and stop_loss_roe > 0:
+                # 스탑로스/익절가 설정 - AI의 가격 변동률 그대로 사용
+                if price_stop_loss_pct and price_stop_loss_pct > 0:
                     if action == 'ENTER_LONG':
-                        self._stop_loss_price = current_price * (1 - stop_loss_roe / 100 / leverage)
+                        self._stop_loss_price = current_price * (1 - price_stop_loss_pct / 100)
                     else:
-                        self._stop_loss_price = current_price * (1 + stop_loss_roe / 100 / leverage)
-                    print(f"스탑로스 가격 설정: {self._stop_loss_price}")
+                        self._stop_loss_price = current_price * (1 + price_stop_loss_pct / 100)
+                    print(f"스탑로스 가격 설정: {self._stop_loss_price:.1f}")
                 
-                if take_profit_roe and take_profit_roe > 0:
+                if price_take_profit_pct and price_take_profit_pct > 0:
                     if action == 'ENTER_LONG':
-                        self._take_profit_price = current_price * (1 + take_profit_roe / 100 / leverage)
+                        self._take_profit_price = current_price * (1 + price_take_profit_pct / 100)
                     else:
-                        self._take_profit_price = current_price * (1 - take_profit_roe / 100 / leverage)
-                    print(f"익절 가격 설정: {self._take_profit_price}")
+                        self._take_profit_price = current_price * (1 - price_take_profit_pct / 100)
+                    print(f"익절 가격 설정: {self._take_profit_price:.1f}")
                 
                 # 스탑로스 모니터링 시작
                 self._start_stop_loss_monitoring()
