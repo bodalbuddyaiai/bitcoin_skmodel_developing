@@ -83,6 +83,7 @@ class JobType:
     """작업 유형 정의"""
     ANALYSIS = "ANALYSIS"  # AI 분석 작업
     FORCE_CLOSE = "FORCE_CLOSE"  # 강제 청산 작업
+    MONITORING = "MONITORING"  # 4시간마다 포지션 모니터링
 
 class TradingAssistant:
     # 싱글톤 인스턴스
@@ -571,6 +572,10 @@ class TradingAssistant:
                     self.scheduler.remove_job(job.id)
                     del self.active_jobs[job.id]
                     print(f"FORCE_CLOSE 작업이 취소되었습니다.")
+            
+            # 모니터링 작업도 함께 취소
+            self._cancel_monitoring_jobs()
+            
         except Exception as e:
             print(f"FORCE_CLOSE 작업 취소 중 오류 발생: {str(e)}")
 
@@ -2062,11 +2067,11 @@ class TradingAssistant:
                     # expected_minutes는 참고용으로만 저장
                     expected_minutes = analysis_result.get('expected_minutes', 240)
                     
-                    # 4시간마다 모니터링 시작
-                    await self._start_position_monitoring(
-                        expected_minutes=expected_minutes,  # 참고용
-                        monitoring_interval=240  # 4시간 고정
-                    )
+                    # 포지션 방향 결정
+                    position_side = 'long' if analysis_result['action'] == 'ENTER_LONG' else 'short'
+                    
+                    # 모니터링 작업 스케줄링
+                    self._schedule_monitoring_jobs(expected_minutes, position_side)
             elif analysis_result['action'] == 'HOLD':
                 # HOLD 결과 처리
                 print("\n=== HOLD 포지션 결정됨 ===")
@@ -2076,7 +2081,11 @@ class TradingAssistant:
                     print(f"HOLD 상태로 60분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
                     await self._schedule_next_analysis(next_time)
             
-            return analysis_result
+            # success 키 추가하여 반환
+            return {
+                "success": True,
+                "analysis": analysis_result
+            }
 
         except Exception as e:
             print(f"분석 및 실행 중 오류: {str(e)}")
@@ -2085,6 +2094,7 @@ class TradingAssistant:
             # 오류 발생 시 30분 후 재분석 스케줄링
             await self._schedule_next_analysis_on_error(str(e))
             return {
+                "success": False,
                 "action": "ERROR",
                 "reason": str(e)
             }
@@ -3018,6 +3028,10 @@ class TradingAssistant:
                 # 스탑로스 모니터링 시작
                 self._start_stop_loss_monitoring()
                 
+                # 모니터링 작업은 analyze_and_execute에서 처리하므로 여기서는 제거
+                # position_side = 'long' if action == 'ENTER_LONG' else 'short'
+                # self._schedule_monitoring_jobs(expected_minutes, position_side)
+                
                 # expected_minutes 시간에 자동 청산 작업 예약 (수정된 부분)
                 force_close_job_id = f"force_close_{int(time.time())}"
                 
@@ -3543,3 +3557,200 @@ class TradingAssistant:
             
         except Exception as e:
             print(f"분석 작업 취소 중 오류: {str(e)}")
+    
+    def _schedule_monitoring_jobs(self, expected_minutes, position_side):
+        """포지션 진입 후 4시간마다 모니터링 작업 스케줄"""
+        try:
+            print(f"\n=== 모니터링 작업 스케줄링 시작 ===")
+            print(f"Expected minutes: {expected_minutes}분")
+            print(f"Position side: {position_side}")
+            print(f"Monitoring interval: {self.monitoring_interval}분 (4시간)")
+            
+            # 기존 모니터링 작업 취소는 하지 않음 (새로 추가만 함)
+            # self._cancel_monitoring_jobs()  # 주석 처리: 방금 생성한 작업을 취소하지 않도록
+            
+            # 모니터링 종료 시간 설정 (expected_minutes까지)
+            monitoring_end_time = datetime.now() + timedelta(minutes=expected_minutes)
+            
+            # 4시간마다 모니터링 작업 스케줄
+            current_time = datetime.now()
+            monitoring_times = []
+            next_monitoring = current_time + timedelta(minutes=self.monitoring_interval)
+            
+            while next_monitoring < monitoring_end_time:
+                monitoring_times.append(next_monitoring)
+                next_monitoring += timedelta(minutes=self.monitoring_interval)
+            
+            print(f"예정된 모니터링 시간: {len(monitoring_times)}회")
+            for idx, monitor_time in enumerate(monitoring_times, 1):
+                print(f"  {idx}. {monitor_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # 각 모니터링 시간에 작업 스케줄
+            for monitor_time in monitoring_times:
+                job_id = f"monitoring_{monitor_time.strftime('%Y%m%d%H%M%S')}"
+                
+                # 비동기 함수를 실행하기 위한 래퍼
+                def async_monitoring_wrapper(job_id, position_side):
+                    """비동기 모니터링 함수를 실행하기 위한 래퍼"""
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(
+                            self._execute_monitoring_job(job_id, position_side)
+                        )
+                    finally:
+                        loop.close()
+                
+                # 작업 스케줄링
+                self.scheduler.add_job(
+                    async_monitoring_wrapper,
+                    'date',
+                    run_date=monitor_time,
+                    id=job_id,
+                    args=[job_id, position_side],
+                    misfire_grace_time=300  # 5분 유예
+                )
+                
+                # 활성 작업 목록에 추가
+                self.active_jobs[job_id] = {
+                    "type": JobType.MONITORING,
+                    "scheduled_time": monitor_time.isoformat(),
+                    "position_side": position_side,
+                    "status": "scheduled"
+                }
+            
+            print(f"모니터링 작업 {len(monitoring_times)}개가 스케줄링되었습니다.")
+            
+        except Exception as e:
+            print(f"모니터링 스케줄링 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _execute_monitoring_job(self, job_id, original_position_side):
+        """모니터링 작업 실행"""
+        try:
+            print(f"\n{'='*50}")
+            print(f"=== 4시간 모니터링 작업 실행 (Job ID: {job_id}) ===")
+            print(f"{'='*50}")
+            print(f"원래 포지션 방향: {original_position_side}")
+            
+            # 현재 포지션 확인
+            positions = self.bitget.get_positions()
+            if not positions or 'data' not in positions:
+                print("포지션 정보를 가져올 수 없음")
+                return
+            
+            # 포지션이 있는지 확인
+            has_position = False
+            current_position_side = None
+            
+            for pos in positions['data']:
+                if float(pos.get('total', 0)) > 0:
+                    has_position = True
+                    current_position_side = pos.get('holdSide')
+                    print(f"현재 포지션 방향: {current_position_side}")
+                    break
+            
+            if not has_position:
+                print("포지션이 이미 청산됨. 모니터링 종료")
+                self._cancel_monitoring_jobs()
+                return
+            
+            # 시장 데이터 수집
+            print("\n시장 데이터 수집 중...")
+            market_data = await self._collect_market_data()
+            if not market_data:
+                print("시장 데이터 수집 실패")
+                return
+            
+            # 동일한 AI 모델로 분석 (초기 분석과 동일한 프롬프트 사용)
+            print(f"\nAI 모델로 시장 재분석 중... (모델: {self.ai_service.get_current_model()})")
+            analysis_result = await self.ai_service.analyze_market_data(market_data)
+            
+            if not analysis_result:
+                print("분석 실패")
+                return
+            
+            action = analysis_result.get('action', 'HOLD')
+            print(f"\n=== 모니터링 분석 결과 ===")
+            print(f"Action: {action}")
+            print(f"Reason: {analysis_result.get('reason', 'No reason provided')}")
+            
+            # 포지션 방향과 분석 결과 비교
+            should_close = False
+            close_reason = ""
+            
+            if current_position_side == 'long' and action == 'ENTER_SHORT':
+                should_close = True
+                close_reason = "롱 포지션 보유 중 숏 신호 발생"
+            elif current_position_side == 'short' and action == 'ENTER_LONG':
+                should_close = True
+                close_reason = "숏 포지션 보유 중 롱 신호 발생"
+            
+            # 반대 방향 신호일 경우만 청산
+            if should_close:
+                print(f"\n!!! 포지션 청산 필요: {close_reason} !!!")
+                
+                # 모든 모니터링 작업 취소
+                self._cancel_monitoring_jobs()
+                
+                # 강제 청산 실행
+                await self._force_close_position_with_reschedule(
+                    job_id=f"monitoring_close_{int(time.time())}",
+                    reason=close_reason
+                )
+                
+                # WebSocket으로 알림
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast({
+                        "type": "monitoring_result",
+                        "event_type": "MONITORING_CLOSE",
+                        "data": {
+                            "action": action,
+                            "reason": close_reason,
+                            "analysis_result": analysis_result
+                        }
+                    })
+            else:
+                # HOLD 또는 같은 방향 신호인 경우 포지션 유지
+                print(f"\n포지션 유지: {action}")
+                print("다음 모니터링까지 대기...")
+                
+                # WebSocket으로 모니터링 결과 전송
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast({
+                        "type": "monitoring_result",
+                        "event_type": "MONITORING_HOLD",
+                        "data": {
+                            "action": action,
+                            "current_position": current_position_side,
+                            "analysis_result": analysis_result
+                        }
+                    })
+            
+        except Exception as e:
+            print(f"모니터링 작업 실행 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def _cancel_monitoring_jobs(self):
+        """모든 모니터링 작업 취소"""
+        try:
+            print("\n모니터링 작업 취소 중...")
+            jobs = self.scheduler.get_jobs()
+            cancelled_count = 0
+            
+            for job in jobs:
+                job_info = self.active_jobs.get(job.id)
+                if job_info and job_info.get('type') == JobType.MONITORING:
+                    print(f"  - 모니터링 작업 취소: {job.id}")
+                    self.scheduler.remove_job(job.id)
+                    if job.id in self.active_jobs:
+                        del self.active_jobs[job.id]
+                    cancelled_count += 1
+            
+            if cancelled_count > 0:
+                print(f"총 {cancelled_count}개의 모니터링 작업이 취소되었습니다.")
+            
+        except Exception as e:
+            print(f"모니터링 작업 취소 중 오류: {str(e)}")
