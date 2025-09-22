@@ -3558,44 +3558,34 @@ class TradingAssistant:
             print(f"분석 작업 취소 중 오류: {str(e)}")
     
     def _schedule_monitoring_jobs(self, expected_minutes, position_side):
-        """포지션 진입 후 4시간마다 모니터링 작업 스케줄"""
+        """포지션 진입 후 4시간마다 모니터링 작업 스케줄 (순차적 스케줄링)"""
         try:
             print(f"\n=== 모니터링 작업 스케줄링 시작 ===")
             print(f"Expected minutes: {expected_minutes}분")
             print(f"Position side: {position_side}")
             print(f"Monitoring interval: {self.monitoring_interval}분 (4시간)")
             
-            # 기존 모니터링 작업 취소는 하지 않음 (새로 추가만 함)
-            # self._cancel_monitoring_jobs()  # 주석 처리: 방금 생성한 작업을 취소하지 않도록
+            # 모니터링 종료 시간 저장 (expected_minutes까지)
+            self.monitoring_end_time = datetime.now() + timedelta(minutes=expected_minutes)
             
-            # 모니터링 종료 시간 설정 (expected_minutes까지)
-            monitoring_end_time = datetime.now() + timedelta(minutes=expected_minutes)
+            # 첫 번째 모니터링만 스케줄 (4시간 후)
+            first_monitoring_time = datetime.now() + timedelta(minutes=self.monitoring_interval)
             
-            # 4시간마다 모니터링 작업 스케줄
-            current_time = datetime.now()
-            monitoring_times = []
-            next_monitoring = current_time + timedelta(minutes=self.monitoring_interval)
-            
-            while next_monitoring < monitoring_end_time:
-                monitoring_times.append(next_monitoring)
-                next_monitoring += timedelta(minutes=self.monitoring_interval)
-            
-            print(f"예정된 모니터링 시간: {len(monitoring_times)}회")
-            for idx, monitor_time in enumerate(monitoring_times, 1):
-                print(f"  {idx}. {monitor_time.strftime('%Y-%m-%d %H:%M:%S')}")
-            
-            # 각 모니터링 시간에 작업 스케줄
-            for monitor_time in monitoring_times:
-                job_id = f"monitoring_{monitor_time.strftime('%Y%m%d%H%M%S')}"
+            # expected_minutes 내에 있을 경우에만 스케줄링
+            if first_monitoring_time < self.monitoring_end_time:
+                job_id = f"monitoring_{first_monitoring_time.strftime('%Y%m%d%H%M%S')}"
+                
+                print(f"첫 번째 모니터링 예약: {first_monitoring_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"모니터링 종료 예정: {self.monitoring_end_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 
                 # 비동기 함수를 실행하기 위한 래퍼
-                def async_monitoring_wrapper(job_id, position_side):
+                def async_monitoring_wrapper(job_id, position_side, expected_minutes):
                     """비동기 모니터링 함수를 실행하기 위한 래퍼"""
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
                         loop.run_until_complete(
-                            self._execute_monitoring_job(job_id, position_side)
+                            self._execute_monitoring_job(job_id, position_side, expected_minutes)
                         )
                     finally:
                         loop.close()
@@ -3604,34 +3594,38 @@ class TradingAssistant:
                 self.scheduler.add_job(
                     async_monitoring_wrapper,
                     'date',
-                    run_date=monitor_time,
+                    run_date=first_monitoring_time,
                     id=job_id,
-                    args=[job_id, position_side],
+                    args=[job_id, position_side, expected_minutes],
                     misfire_grace_time=300  # 5분 유예
                 )
                 
                 # 활성 작업 목록에 추가
                 self.active_jobs[job_id] = {
                     "type": JobType.MONITORING,
-                    "scheduled_time": monitor_time.isoformat(),
+                    "scheduled_time": first_monitoring_time.isoformat(),
                     "position_side": position_side,
+                    "expected_minutes": expected_minutes,
                     "status": "scheduled"
                 }
-            
-            print(f"모니터링 작업 {len(monitoring_times)}개가 스케줄링되었습니다.")
+                
+                print(f"첫 번째 모니터링 작업이 스케줄링되었습니다.")
+            else:
+                print(f"Expected minutes({expected_minutes}분) 내에 모니터링 시간이 없어 스케줄링하지 않습니다.")
             
         except Exception as e:
             print(f"모니터링 스케줄링 중 오류: {str(e)}")
             import traceback
             traceback.print_exc()
     
-    async def _execute_monitoring_job(self, job_id, original_position_side):
-        """모니터링 작업 실행"""
+    async def _execute_monitoring_job(self, job_id, original_position_side, expected_minutes):
+        """모니터링 작업 실행 (순차적 스케줄링 포함)"""
         try:
             print(f"\n{'='*50}")
             print(f"=== 4시간 모니터링 작업 실행 (Job ID: {job_id}) ===")
             print(f"{'='*50}")
             print(f"원래 포지션 방향: {original_position_side}")
+            print(f"Expected minutes: {expected_minutes}분")
             
             # 현재 포지션 확인
             positions = self.bitget.get_positions()
@@ -3713,7 +3707,48 @@ class TradingAssistant:
             else:
                 # HOLD 또는 같은 방향 신호인 경우 포지션 유지
                 print(f"\n포지션 유지: {action}")
-                print("다음 모니터링까지 대기...")
+                
+                # 다음 모니터링 스케줄링 (expected_minutes 내에서 4시간 후)
+                next_monitoring_time = datetime.now() + timedelta(minutes=self.monitoring_interval)
+                
+                # expected_minutes 내에 있을 경우에만 다음 모니터링 스케줄
+                if hasattr(self, 'monitoring_end_time') and next_monitoring_time < self.monitoring_end_time:
+                    next_job_id = f"monitoring_{next_monitoring_time.strftime('%Y%m%d%H%M%S')}"
+                    
+                    print(f"\n다음 모니터링 예약: {next_monitoring_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"Job ID: {next_job_id}")
+                    
+                    # 비동기 함수 래퍼
+                    def async_next_monitoring_wrapper(job_id, position_side, expected_minutes):
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                self._execute_monitoring_job(job_id, position_side, expected_minutes)
+                            )
+                        finally:
+                            loop.close()
+                    
+                    # 다음 모니터링 스케줄링
+                    self.scheduler.add_job(
+                        async_next_monitoring_wrapper,
+                        'date',
+                        run_date=next_monitoring_time,
+                        id=next_job_id,
+                        args=[next_job_id, original_position_side, expected_minutes],
+                        misfire_grace_time=300
+                    )
+                    
+                    # 활성 작업 목록에 추가
+                    self.active_jobs[next_job_id] = {
+                        "type": JobType.MONITORING,
+                        "scheduled_time": next_monitoring_time.isoformat(),
+                        "position_side": original_position_side,
+                        "expected_minutes": expected_minutes,
+                        "status": "scheduled"
+                    }
+                else:
+                    print(f"\nExpected minutes 종료. 더 이상 모니터링을 스케줄하지 않습니다.")
                 
                 # WebSocket으로 모니터링 결과 전송
                 if self.websocket_manager:
@@ -3723,7 +3758,8 @@ class TradingAssistant:
                         "data": {
                             "action": action,
                             "current_position": current_position_side,
-                            "analysis_result": analysis_result
+                            "analysis_result": analysis_result,
+                            "next_monitoring": next_monitoring_time.isoformat() if hasattr(self, 'monitoring_end_time') and next_monitoring_time < self.monitoring_end_time else None
                         }
                     })
             

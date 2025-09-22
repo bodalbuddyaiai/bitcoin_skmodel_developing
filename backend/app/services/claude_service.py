@@ -95,8 +95,8 @@ class ClaudeService:
         # 목표 대비 달성률 계산
         target_achievement = round((current_roe / take_profit_roe) * 100) if take_profit_roe > 0 else 0
 
-        prompt = f"""이 프롬프트는 모니터링을 위한 프롬프트로 당분간 사용 안함. (모니터링 주기 2300분으로 설정해놓음)
-"""
+#         prompt = f"""이 프롬프트는 모니터링을 위한 프롬프트로 당분간 사용 안함. (모니터링 주기 2300분으로 설정해놓음)
+# """
         return prompt
 
     async def analyze_market_data(self, market_data):
