@@ -157,7 +157,10 @@ class TradingAssistant:
         
         # 현재 포지션 정보 초기화
         self.current_positions = []
-        
+
+        # 포지션 모니터링 스레드 시작
+        self._start_position_monitor_thread()
+
         print("TradingAssistant 초기화 완료")
 
     def set_ai_model(self, model_type):
@@ -167,6 +170,37 @@ class TradingAssistant:
     def get_current_ai_model(self):
         """현재 AI 모델 반환"""
         return self.ai_service.get_current_model()
+
+    def _start_position_monitor_thread(self):
+        """포지션 모니터링 스레드 시작"""
+        def monitor_positions():
+            """포지션 정보를 주기적으로 업데이트하는 스레드"""
+            print("포지션 모니터링 스레드 시작됨")
+            while True:
+                try:
+                    # 5초마다 포지션 정보 업데이트
+                    time.sleep(5)
+
+                    # 포지션 정보 가져오기
+                    positions = self.bitget.get_positions()
+                    if positions and 'data' in positions:
+                        for pos in positions['data']:
+                            if float(pos.get('total', 0)) > 0:
+                                # 포지션이 있으면 정보 업데이트 (손절/익절 가격 포함)
+                                self._update_position_info(pos)
+
+                except Exception as e:
+                    print(f"포지션 모니터링 중 오류: {str(e)}")
+                    time.sleep(10)  # 오류 발생 시 10초 대기
+
+        # 스레드 시작
+        try:
+            monitor_thread = threading.Thread(target=monitor_positions)
+            monitor_thread.daemon = True
+            monitor_thread.start()
+            print("포지션 모니터링 스레드가 시작되었습니다.")
+        except Exception as e:
+            print(f"포지션 모니터링 스레드 시작 실패: {str(e)}")
 
     async def _force_close_position_with_reschedule(self, job_id, reason="모니터링 분석 결과"):
         """포지션 방향과 반대 신호 시 강제 청산 후 60분 후 재분석"""
@@ -2645,13 +2679,21 @@ class TradingAssistant:
     def _update_position_info(self, position_data):
         """포지션 정보 업데이트"""
         try:
+            # 디버깅용: 모든 포지션 데이터 필드 출력 (1회만)
+            if not hasattr(self, '_position_fields_logged'):
+                print("\n=== Bitget 포지션 데이터 필드 확인 ===")
+                for key, value in position_data.items():
+                    print(f"{key}: {value}")
+                print("=====================================\n")
+                self._position_fields_logged = True
+
             position_info = {
                 'size': float(position_data.get('total', 0)),
                 'entry_price': float(position_data.get('openPriceAvg', 0)),
                 'unrealized_pnl': float(position_data.get('unrealizedPL', 0)),
                 'side': position_data.get('holdSide', '').lower()
             }
-            
+
             # takeProfit과 stopLoss 값 추가 (이미 ROE 값으로 존재)
             take_profit = position_data.get('takeProfit', '')
             stop_loss = position_data.get('stopLoss', '')
@@ -2686,7 +2728,26 @@ class TradingAssistant:
             # 기타 중요 정보 추가
             position_info['leverage'] = leverage
             position_info['entry_time'] = position_data.get('cTime', '')
-            
+
+            # 실제 손절/익절 가격 업데이트 (Bitget API 필드명에 따라 조정 필요)
+            # presetStopSurplusPrice: 익절가, presetStopLossPrice: 손절가
+            stop_loss_price = position_data.get('presetStopLossPrice', '')
+            take_profit_price = position_data.get('presetStopSurplusPrice', '')
+
+            # 만약 위 필드가 없으면 다른 가능한 필드명 시도
+            if not stop_loss_price and not take_profit_price:
+                stop_loss_price = position_data.get('stopLossPrice', '')
+                take_profit_price = position_data.get('takeProfitPrice', '')
+
+            # 손절/익절 가격을 float로 변환하여 저장
+            if stop_loss_price and stop_loss_price != '0' and stop_loss_price != '':
+                self._stop_loss_price = float(stop_loss_price)
+                print(f"손절가 업데이트: {self._stop_loss_price}")
+
+            if take_profit_price and take_profit_price != '0' and take_profit_price != '':
+                self._take_profit_price = float(take_profit_price)
+                print(f"익절가 업데이트: {self._take_profit_price}")
+
             print(f"포지션 정보 업데이트 완료: {position_info}")
             return position_info
             
@@ -2794,12 +2855,19 @@ class TradingAssistant:
                     
                     # 기존 예약 작업 취소
                     self._cancel_scheduled_analysis()
-                    
-                    # 60분 후 새로운 분석 예약
-                    next_analysis_time = datetime.now() + timedelta(minutes=60)
+
+                    # 청산 사유에 따른 재분석 시간 결정
+                    if liquidation_reason == "손절가 도달":
+                        next_analysis_minutes = 5  # Stop loss: 5분 후 재분석
+                        print(f"손절가 도달로 인한 청산 - {next_analysis_minutes}분 후 재분석")
+                    else:
+                        next_analysis_minutes = 60  # 나머지 모든 경우: 60분 후
+                        print(f"{liquidation_reason}로 인한 청산 - {next_analysis_minutes}분 후 재분석")
+
+                    next_analysis_time = datetime.now() + timedelta(minutes=next_analysis_minutes)
                     new_job_id = str(uuid.uuid4())
-                    
-                    
+
+
                     print(f"\n=== 포지션 청산 감지 후 새로운 분석 예약 ===")
                     print(f"예약 시간: {next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')}")
                     print(f"작업 ID: {new_job_id}")
@@ -2852,13 +2920,13 @@ class TradingAssistant:
                                     "event_type": "LIQUIDATION",
                                     "data": {
                                         "success": True,
-                                        "message": "포지션이 청산되었습니다. 60분 후 새로운 분석이 실행됩니다.",
+                                        "message": f"포지션이 청산되었습니다. {next_analysis_minutes}분 후 새로운 분석이 실행됩니다.",
                                         "liquidation_info": liquidation_info,
                                         "next_analysis": {
                                             "job_id": new_job_id,
                                             "scheduled_time": next_analysis_time.isoformat(),
                                             "reason": "포지션 청산 후 자동 재시작",
-                                            "expected_minutes": 60
+                                            "expected_minutes": next_analysis_minutes
                                         }
                                     },
                                     "timestamp": datetime.now().isoformat()
