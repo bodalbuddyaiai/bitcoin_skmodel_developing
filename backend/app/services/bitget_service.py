@@ -26,9 +26,9 @@ class BitgetService:
         
         # API 요청 제한 관리를 위한 변수
         self.last_request_time = 0
-        self.min_request_interval = 0.2  # 초 단위 (200ms)
+        self.min_request_interval = 0.3  # 초 단위 (300ms) - Rate Limit 방지를 위해 증가
         self.retry_count = 3  # 재시도 횟수
-        self.retry_delay = 1  # 재시도 간격 (초)
+        self.retry_delay = 2  # 재시도 간격 (초) - Rate Limit 에러 시 더 긴 대기
         
         # API 호출 시간 추적을 위한 변수
         self.last_api_call_time = 0
@@ -130,8 +130,11 @@ class BitgetService:
                     
                     # 응답 확인
                     if response.status_code == 429:
+                        # Rate Limit 에러 시 exponential backoff 적용
+                        wait_time = self.retry_delay * (2 ** attempt)  # 2초 -> 4초 -> 8초
                         print(f"API 요청 제한 초과 (429 에러). 재시도 {attempt+1}/{self.retry_count}")
-                        time.sleep(self.retry_delay * (attempt + 1))  # 지수 백오프
+                        print(f"Rate Limit으로 인해 {wait_time}초 대기 중...")
+                        time.sleep(wait_time)
                         continue
                     
                     response.raise_for_status()
@@ -143,8 +146,11 @@ class BitgetService:
                 except requests.exceptions.RequestException as e:
                     print(f"API 요청 오류 ({attempt+1}/{self.retry_count}): {str(e)}")
                     if attempt < self.retry_count - 1:
-                        time.sleep(self.retry_delay * (attempt + 1))  # 지수 백오프
+                        wait_time = self.retry_delay * (2 ** attempt)  # exponential backoff
+                        print(f"요청 실패로 {wait_time}초 후 재시도...")
+                        time.sleep(wait_time)
                     else:
+                        print(f"최대 재시도 횟수 초과. 요청 실패: {str(e)}")
                         return {"code": "ERROR", "data": None, "msg": str(e)}
         
             return {"code": "ERROR", "data": None, "msg": "최대 재시도 횟수 초과"}

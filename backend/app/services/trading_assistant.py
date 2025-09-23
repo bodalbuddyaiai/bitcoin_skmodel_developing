@@ -2364,11 +2364,11 @@ class TradingAssistant:
             print(f"\n=== 모니터링 분석 결과 ===")
             print(f"AI 분석 액션: {analysis_result['action']}")
             print(f"AI 분석 이유: {analysis_result.get('reason', 'N/A')[:200]}...")
-            
+
             # 포지션 방향과 분석 결과 비교
             should_close = False
             close_reason = ""
-            
+
             if current_position_side == 'long' and analysis_result['action'] == 'ENTER_SHORT':
                 should_close = True
                 close_reason = "롱 포지션 중이나 AI가 숏 신호를 제시"
@@ -2379,12 +2379,22 @@ class TradingAssistant:
                 print("AI가 HOLD를 제시했으므로 현재 포지션을 유지합니다.")
             else:
                 print(f"AI가 같은 방향({analysis_result['action']})을 제시했으므로 포지션을 유지합니다.")
-            
+
+            # 모니터링 결과 정의
+            monitoring_result = {
+                'position_side': current_position_side,
+                'ai_action': analysis_result['action'],
+                'should_close': should_close,
+                'close_reason': close_reason if should_close else None,
+                'position_info': position_info,
+                'analysis_reason': analysis_result.get('reason', 'N/A')
+            }
+
             # 포지션 청산 처리
             if should_close:
                 print(f"\n⚠️ 포지션 청산 필요: {close_reason}")
                 print("포지션을 강제 청산합니다.")
-                
+
                 # 강제 청산 실행
                 close_loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(close_loop)
@@ -2397,7 +2407,7 @@ class TradingAssistant:
             else:
                 print("\n✅ 포지션 유지: 현재 포지션 방향과 AI 분석이 일치하거나 HOLD 신호")
                 print(f"다음 모니터링: 4시간 후")
-                
+
             # 웹소켓으로 모니터링 결과 전송
             # 비동기 함수를 동기적으로 실행하기 위한 이벤트 루프 생성
             broadcast_loop = asyncio.new_event_loop()
@@ -2478,13 +2488,17 @@ class TradingAssistant:
                 message = {
                     "type": "MONITORING_RESULT",
                     "data": {
-                        "action": result['action'],
-                        "reason": result['reason'],
+                        "position_side": result.get('position_side'),
+                        "ai_action": result.get('ai_action'),
+                        "should_close": result.get('should_close', False),
+                        "close_reason": result.get('close_reason'),
+                        "analysis_reason": result.get('analysis_reason', 'N/A')[:200],  # 너무 길면 잘라내기
                         "timestamp": datetime.now().isoformat()
                     }
                 }
                 await self.websocket_manager.broadcast(message)
-                
+                print(f"모니터링 결과가 웹소켓으로 전송되었습니다.")
+
         except Exception as e:
             print(f"모니터링 결과 전송 중 오류: {str(e)}")
 
