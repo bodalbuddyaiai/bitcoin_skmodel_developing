@@ -129,7 +129,7 @@ class TradingAssistant:
         self.is_monitoring = False
         self.monitoring_start_time = None
         self.monitoring_end_time = None
-        self.monitoring_interval = 240  # 4시간(240분)마다 모니터링
+        self.monitoring_interval = 120  # 2시간(120분)마다 모니터링
         
         # 포지션 관련 변수 초기화
         self._position_entry_time = None
@@ -2940,8 +2940,18 @@ class TradingAssistant:
             
             # AI가 제공한 ROE는 실제 가격 변동률(%)
             # 포지션 ROE = 가격 변동률 × 레버리지
-            price_stop_loss_pct = stop_loss_roe if stop_loss_roe is not None else 5.0  # AI가 제공한 값 그대로 사용 (가격 변동률)
-            price_take_profit_pct = take_profit_roe if take_profit_roe is not None else 10.0  # AI가 제공한 값 그대로 사용 (가격 변동률)
+            # AI 값에서 절대값 0.1을 빼서 더 안전한 값으로 설정
+            if stop_loss_roe is not None:
+                # stop_loss는 음수 값이므로 절대값을 빼면 더 작은 손실로 설정됨
+                price_stop_loss_pct = abs(stop_loss_roe) - 0.1 if abs(stop_loss_roe) > 0.1 else abs(stop_loss_roe)
+            else:
+                price_stop_loss_pct = 5.0  # 기본값
+
+            if take_profit_roe is not None:
+                # take_profit는 양수 값이므로 절대값을 빼면 더 작은 이익으로 설정됨
+                price_take_profit_pct = abs(take_profit_roe) - 0.1 if abs(take_profit_roe) > 0.1 else abs(take_profit_roe)
+            else:
+                price_take_profit_pct = 10.0  # 기본값
             
             # 포지션 기준 ROE 계산 (표시용)
             position_stop_loss_roe = price_stop_loss_pct * leverage
@@ -2949,6 +2959,8 @@ class TradingAssistant:
             
             print("\n=== ROE 값 처리 ===")
             print(f"레버리지: {leverage}x")
+            print(f"AI 제공 Stop Loss: {stop_loss_roe}% → 조정된 값: {price_stop_loss_pct}%")
+            print(f"AI 제공 Take Profit: {take_profit_roe}% → 조정된 값: {price_take_profit_pct}%")
             print(f"가격 변동률 - Stop Loss: {price_stop_loss_pct}%")
             print(f"가격 변동률 - Take Profit: {price_take_profit_pct}%")
             print(f"포지션 ROE - Stop Loss: -{position_stop_loss_roe:.1f}% (레버리지 적용)")
