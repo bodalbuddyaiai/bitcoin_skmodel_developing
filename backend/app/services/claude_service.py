@@ -146,11 +146,11 @@ class ClaudeService:
        - 강한 트렌드 (ADX>35): 30-50배
        - 일반 트렌드 (ADX 25-35): 20-30배
        - 약한 트렌드 (ADX<25): 10-20배
-    4) STOP_LOSS_ROE: EXPECTED_MINUTES 시간 내 도달가능한 손절해야하는 비트코인 가격에 대해 현재 가격에 대한 비트코인 변동률 기준으로 답변할 것. [소수점 1자리, 레버리지 미반영 값 퍼센트 비율] (HOLD 시 생략) : ATR × (1.0~2.5) 동적 조정
+    4) STOP_LOSS_ROE: EXPECTED_MINUTES 시간 내 도달가능한 손절해야하는 비트코인 가격에 대해 현재 가격에 대한 비트코인 변동률 기준으로 답변할 것. 정수나 0.5 단위로 숫자를 맞추려 하지 말고 철저히 계산된 값으로 도출할 것. [소수점 2자리, 레버리지 미반영 값 퍼센트 비율] (HOLD 시 생략) : ATR × (1.0~2.5) 동적 조정
        - 강한 트렌드: ATR × 1.0~1.5
        - 일반 트렌드: ATR × 1.5~2.0
        - 변동장: ATR × 2.0~2.5
-    5) TAKE_PROFIT_ROE: EXPECTED_MINUTES 시간 내 도달가능한 익절해야하는 비트코인 가격에 대해 현재 가격에 대한 비트코인 변동률 기준으로 답변할 것.[소수점 1자리, 레버리지 미반영 값 퍼센트 비율] (HOLD 시 생략) : ATR × (3.5~8.0) 동적 조정 (손절 대비 최소 3배 이상)
+    5) TAKE_PROFIT_ROE: EXPECTED_MINUTES 시간 내 도달가능한 익절해야하는 비트코인 가격에 대해 현재 가격에 대한 비트코인 변동률 기준으로 답변할 것. 정수나 0.5 단위로 숫자를 맞추려 하지 말고 철저히 계산된 값으로 도출할 것.[소수점 2자리, 레버리지 미반영 값 퍼센트 비율] (HOLD 시 생략) : ATR × (3.5~8.0) 동적 조정 (손절 대비 최소 3배 이상)
        - 강한 트렌드: ATR × 3.5~5.0
        - 일반 트렌드: ATR × 5.0~6.5
        - 변동장: ATR × 6.5~8.0
@@ -255,8 +255,8 @@ class ClaudeService:
 ACTION: [ENTER_LONG/ENTER_SHORT/HOLD]
 POSITION_SIZE: [0.3-0.9] (HOLD 시 생략)
 LEVERAGE: [10-50 정수] (HOLD 시 생략)
-STOP_LOSS_ROE: [소수점 1자리] (HOLD 시 생략)
-TAKE_PROFIT_ROE: [소수점 1자리] (HOLD 시 생략)
+STOP_LOSS_ROE: [소수점 2자리] (HOLD 시 생략)
+TAKE_PROFIT_ROE: [소수점 2자리] (HOLD 시 생략)
 EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
 
 ## ANALYSIS_DETAILS
