@@ -258,8 +258,8 @@ class TradingAssistant:
                 self._cancel_scheduled_analysis()
                 self.cancel_all_jobs()
                 
-                # 60분 후 새로운 분석 예약
-                next_analysis_time = datetime.now() + timedelta(minutes=60)
+                # 120분 후 새로운 분석 예약
+                next_analysis_time = datetime.now() + timedelta(minutes=120)
                 new_job_id = str(uuid.uuid4())
                 
                 print(f"\n=== 강제 청산 후 새로운 분석 예약 ===")
@@ -334,13 +334,13 @@ class TradingAssistant:
                         "event_type": "FORCE_CLOSE",
                         "data": {
                             "success": True,
-                            "message": f"{reason}로 인해 포지션이 청산되었습니다. 60분 후 새로운 분석이 실행됩니다.",
+                            "message": f"{reason}로 인해 포지션이 청산되었습니다. 120분 후 새로운 분석이 실행됩니다.",
                             "close_reason": reason,
                             "next_analysis": {
                                 "job_id": new_job_id,
                                 "scheduled_time": next_analysis_time.isoformat(),
                                 "reason": "모니터링 청산 후 자동 재시작",
-                                "expected_minutes": 60
+                                "expected_minutes": 120
                             }
                         },
                         "timestamp": datetime.now().isoformat()
@@ -354,7 +354,7 @@ class TradingAssistant:
                 self._take_profit_price = None
                 
                 print("포지션 관련 상태가 초기화되었습니다.")
-                print(f"60분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
+                print(f"120분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
                 
             else:
                 print("강제 청산 실패 또는 부분 청산됨")
@@ -420,8 +420,8 @@ class TradingAssistant:
                     print("모든 스케줄링된 작업이 취소되었습니다.")
                     self.cancel_all_jobs()
                     
-                    # 60분 후 새로운 분석 예약
-                    next_analysis_time = datetime.now() + timedelta(minutes=60)
+                    # 120분 후 새로운 분석 예약
+                    next_analysis_time = datetime.now() + timedelta(minutes=120)
                     new_job_id = str(uuid.uuid4())
                     
                     print(f"\n=== 강제 청산 후 새로운 분석 예약 ===")
@@ -496,12 +496,12 @@ class TradingAssistant:
                             "event_type": "FORCE_CLOSE",
                             "data": {
                                 "success": True,
-                                "message": "Expected minutes에 도달하여 포지션이 청산되었습니다. 60분 후 새로운 분석이 실행됩니다.",
+                                "message": "Expected minutes에 도달하여 포지션이 청산되었습니다. 120분 후 새로운 분석이 실행됩니다.",
                                 "next_analysis": {
                                     "job_id": new_job_id,
                                     "scheduled_time": next_analysis_time.isoformat(),
                                     "reason": "Expected minutes 도달 후 자동 재시작",
-                                    "expected_minutes": 60
+                                    "expected_minutes": 120
                                 }
                             },
                             "timestamp": datetime.now().isoformat()
@@ -516,7 +516,7 @@ class TradingAssistant:
                     self._liquidation_detected = True  # 청산 감지 플래그 설정
                     
                     print("포지션 관련 상태가 초기화되었습니다.")
-                    print(f"60분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
+                    print(f"120분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
                     
                 else:
                     print("강제 청산 실패 또는 부분 청산됨")
@@ -2110,9 +2110,9 @@ class TradingAssistant:
                 # HOLD 결과 처리
                 print("\n=== HOLD 포지션 결정됨 ===")
                 if schedule_next:
-                    # HOLD 액션인 경우 항상 60분 후에 재분석 (기존 30분에서 변경)
-                    next_time = datetime.now() + timedelta(minutes=60)
-                    print(f"HOLD 상태로 60분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
+                    # HOLD 액션인 경우 항상 120분 후에 재분석
+                    next_time = datetime.now() + timedelta(minutes=120)
+                    print(f"HOLD 상태로 120분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
                     await self._schedule_next_analysis(next_time)
             
             # success 키 추가하여 반환
@@ -2200,8 +2200,8 @@ class TradingAssistant:
             print(f"\n=== 오류 발생으로 인한 다음 분석 예약 ===")
             print(f"오류 내용: {error_message}")
             
-            # 60분 후로 다음 분석 예약 (기존 1분에서 60분으로 변경)
-            next_time = datetime.now() + timedelta(minutes=60)
+            # 120분 후로 다음 분석 예약
+            next_time = datetime.now() + timedelta(minutes=120)
             await self._schedule_next_analysis(next_time)
             
             # 에러 메시지 브로드캐스트
@@ -2875,7 +2875,7 @@ class TradingAssistant:
                         next_analysis_minutes = 5  # Stop loss: 5분 후 재분석
                         print(f"손절가 도달로 인한 청산 - {next_analysis_minutes}분 후 재분석")
                     else:
-                        next_analysis_minutes = 60  # 나머지 모든 경우: 60분 후
+                        next_analysis_minutes = 120  # 나머지 모든 경우: 120분 후
                         print(f"{liquidation_reason}로 인한 청산 - {next_analysis_minutes}분 후 재분석")
 
                     next_analysis_time = datetime.now() + timedelta(minutes=next_analysis_minutes)
@@ -3306,8 +3306,8 @@ class TradingAssistant:
                 # 기존 예약 작업 취소
                 self.cancel_all_jobs()
                 
-                # 60분 후 새로운 분석 예약
-                next_analysis_time = datetime.now() + timedelta(minutes=60)
+                # 120분 후 새로운 분석 예약
+                next_analysis_time = datetime.now() + timedelta(minutes=120)
                 new_job_id = str(uuid.uuid4())
                 
                 print(f"\n=== 청산 후 새로운 분석 예약 ===")
@@ -3327,7 +3327,7 @@ class TradingAssistant:
                 self.active_jobs[new_job_id] = {
                     "type": JobType.FORCE_CLOSE,
                     "scheduled_time": next_analysis_time.isoformat(),
-                    "expected_minutes": 60,
+                    "expected_minutes": 120,
                     "analysis_result": liquidation_info
                 }
                 
@@ -3409,8 +3409,8 @@ class TradingAssistant:
                         # FORCE_CLOSE 작업 취소
                         self._cancel_force_close_job()
                         
-                        # 새로운 분석 작업 예약 (60분 후)
-                        next_analysis_time = datetime.now() + timedelta(minutes=60)
+                        # 새로운 분석 작업 예약 (120분 후)
+                        next_analysis_time = datetime.now() + timedelta(minutes=120)
                         job_id = f"analysis_{next_analysis_time.strftime('%Y%m%d%H%M%S')}"
                         
                         try:
@@ -3449,13 +3449,13 @@ class TradingAssistant:
                                             "event_type": "LIQUIDATION",
                                             "data": {
                                                 "success": True,
-                                                "message": "포지션이 청산되었습니다. 60분 후 새로운 분석이 실행됩니다.",
+                                                "message": "포지션이 청산되었습니다. 120분 후 새로운 분석이 실행됩니다.",
                                                 "liquidation_info": {},  # 필요한 정보 추가
                                                 "next_analysis": {
                                                     "job_id": job_id,
                                                     "scheduled_time": next_analysis_time.isoformat(),
                                                     "reason": "포지션 청산 후 자동 재시작",
-                                                    "expected_minutes": 60
+                                                    "expected_minutes": 120
                                                 }
                                             },
                                             "timestamp": datetime.now().isoformat()
@@ -3551,8 +3551,8 @@ class TradingAssistant:
             }
             await self.websocket_manager.broadcast(error_data)
             
-            # 60분 후 다음 분석 예약
-            next_analysis_time = datetime.now() + timedelta(minutes=60)
+            # 120분 후 다음 분석 예약
+            next_analysis_time = datetime.now() + timedelta(minutes=120)
             job_id = f"ANALYSIS_{int(time.time())}"
             
             # 새로운 분석 작업 예약
