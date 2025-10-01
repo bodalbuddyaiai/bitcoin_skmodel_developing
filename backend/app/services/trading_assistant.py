@@ -129,7 +129,7 @@ class TradingAssistant:
         self.is_monitoring = False
         self.monitoring_start_time = None
         self.monitoring_end_time = None
-        self.monitoring_interval = 120  # 2시간(120분)마다 모니터링
+        self.monitoring_interval = 90  # 90분마다 모니터링
         
         # 포지션 관련 변수 초기화
         self._position_entry_time = None

@@ -10,7 +10,7 @@ class AIService:
     def set_model(self, model_type):
         """AI 모델 설정
         Args:
-            model_type (str): 모델 타입 ('openai', 'claude', 'claude-opus', 'claude-opus-4.1')
+            model_type (str): 모델 타입 ('openai', 'claude', 'claude-opus', 'claude-opus-4.1', 'claude-sonnet-4.5')
         """
         if model_type in ['openai', 'gpt']:
             self.current_model = 'openai'
@@ -26,10 +26,14 @@ class AIService:
             self.current_model = 'claude-opus-4.1'
             # Claude 서비스에 모델 타입 설정
             self.claude_service.set_model_type('claude-opus-4.1')
+        elif model_type in ['claude-sonnet-4.5', 'sonnet-4.5']:
+            self.current_model = 'claude-sonnet-4.5'
+            # Claude 서비스에 모델 타입 설정
+            self.claude_service.set_model_type('claude-sonnet-4.5')
         else:
             print(f"알 수 없는 모델 타입: {model_type}")
             return False
-        
+
         print(f"AI 모델이 {self.current_model}로 설정되었습니다.")
         return True
     
@@ -46,10 +50,10 @@ class AIService:
     async def analyze_market_data(self, market_data):
         """선택된 AI 모델로 시장 데이터 분석"""
         print(f"\n=== AI 서비스: {self.current_model.upper()} 모델 사용 중 ===")
-        
+
         if self.current_model == "gpt":
             return await self.openai_service.analyze_market_data(market_data)
-        elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1"]:
+        elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1", "claude-sonnet-4.5"]:
             return await self.claude_service.analyze_market_data(market_data)
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}")
@@ -58,7 +62,7 @@ class AIService:
         """선택된 AI 모델로 포지션 모니터링"""
         if self.current_model == "gpt":
             return await self.openai_service.monitor_position(market_data, position_info)
-        elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1"]:
+        elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1", "claude-sonnet-4.5"]:
             return await self.claude_service.monitor_position(market_data, position_info)
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}") 

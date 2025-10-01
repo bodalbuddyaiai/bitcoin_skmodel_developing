@@ -98,6 +98,8 @@ const AIModelSelector = () => {
         return 'Anthropic Claude-Opus-4 모델을 사용하여 시장 분석을 수행합니다. (고성능)';
       case 'claude-opus-4.1':
         return 'Anthropic Claude-Opus-4.1 모델을 사용하여 시장 분석을 수행합니다. (최신 최고 성능, 우수한 추론 능력)';
+      case 'claude-sonnet-4.5':
+        return 'Anthropic Claude-Sonnet-4.5 모델을 사용하여 시장 분석을 수행합니다. (2025년 최신 모델, 향상된 추론 능력)';
       default:
         return '';
     }
@@ -113,6 +115,8 @@ const AIModelSelector = () => {
         return 'warning';
       case 'claude-opus-4.1':
         return 'error';
+      case 'claude-sonnet-4.5':
+        return 'success';
       default:
         return 'default';
     }
@@ -199,9 +203,9 @@ const AIModelSelector = () => {
                 </Box>
               }
             />
-            <FormControlLabel 
-              value="claude-opus-4.1" 
-              control={<Radio />} 
+            <FormControlLabel
+              value="claude-opus-4.1"
+              control={<Radio />}
               label={
                 <Box>
                   <Typography variant="body2" fontWeight="bold">
@@ -209,6 +213,20 @@ const AIModelSelector = () => {
                   </Typography>
                   <Typography variant="caption" sx={{ opacity: 0.8 }}>
                     Anthropic의 최신 최고 성능 모델 - 우수한 추론 능력
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="claude-sonnet-4.5"
+              control={<Radio />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">
+                    Claude-Sonnet-4.5 (2025) 🚀
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                    2025년 최신 Claude-Sonnet-4.5 모델 - 향상된 추론 능력
                   </Typography>
                 </Box>
               }

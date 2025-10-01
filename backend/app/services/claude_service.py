@@ -24,6 +24,9 @@ class ClaudeService:
         elif model_type == "claude-opus-4.1":
             self.model = "claude-opus-4-1-20250805"
             print(f"Claude 모델을 Claude-Opus-4.1로 설정: {self.model}")
+        elif model_type == "claude-sonnet-4.5":
+            self.model = "claude-sonnet-4-5-20250929"
+            print(f"Claude 모델을 Claude-Sonnet-4.5 (2025)로 설정: {self.model}")
         else:
             print(f"알 수 없는 Claude 모델 타입: {model_type}, 기본값 유지")
 
@@ -245,7 +248,7 @@ class ClaudeService:
 - 볼륨 스파이크 (평균 대비 300% 이상)
 - 3개 이상 시간대에서 동시 반전 패턴
 - MACD 강한 크로스오버 신호
-- **최근 100개 평균 캔들길이보다 3배 이상 긴 캔들이 출현하고 동시에 해당 캔들에서 윗꼬리나 아래꼬리가 출현하였을 경우는 추세 반전의 신호로 판단할 것**
+- **최근 100개 평균 캔들길이보다 3배 이상 긴 캔들이 출현하고 동시에 해당 캔들에서 윗꼬리나 아래꼬리가 출현하였을 경우 해당 캔들을 기점으로 추세 반전의 신호로 판단할 것**
 
 ### 응답 형식:
 ## TRADING_DECISION
@@ -285,15 +288,15 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                 }
             ]
 
-            # Opus 4.1 모델은 temperature와 top_p를 동시에 사용할 수 없음
-            if self.model == "claude-opus-4-1-20250805":
+            # Opus 4.1 및 Sonnet 4.5 모델은 temperature와 top_p를 동시에 사용할 수 없음
+            if self.model in ["claude-opus-4-1-20250805", "claude-sonnet-4-5-20250929"]:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 20000,
-                    "temperature": 1.0,   # Opus 4.1은 temperature만 사용
+                    "max_tokens": 16000,
+                    "temperature": 1.0,   # Opus 4.1과 Sonnet 4.5는 temperature만 사용
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 32000  # 최대 분석 깊이
+                        "budget_tokens": 16000  # 최대 분석 깊이
                     },
                     "system": system_prompt,
                     "messages": [
@@ -306,12 +309,12 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
             else:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 20000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
+                    "max_tokens": 16000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
                     "temperature": 1.0,   # Extended Thinking 사용 시 반드시 1.0이어야 함
                     "top_p": 0.95,        # Extended Thinking 사용 시 0.95 이상이어야 함
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 32000  # 16000에서 32000으로 증가 (최대 분석 깊이)
+                        "budget_tokens": 16000  # 16000에서 32000으로 증가 (최대 분석 깊이)
                     },
                     "system": system_prompt,
                     "messages": [
@@ -823,15 +826,15 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                 "content-type": "application/json"
             }
 
-            # Opus 4.1 모델은 temperature와 top_p를 동시에 사용할 수 없음
-            if self.model == "claude-opus-4-1-20250805":
+            # Opus 4.1 및 Sonnet 4.5 모델은 temperature와 top_p를 동시에 사용할 수 없음
+            if self.model in ["claude-opus-4-1-20250805", "claude-sonnet-4-5-20250929"]:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 20000,
-                    "temperature": 1.0,   # Opus 4.1은 temperature만 사용
+                    "max_tokens": 16000,
+                    "temperature": 1.0,   # Opus 4.1과 Sonnet 4.5는 temperature만 사용
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 32000  # 최대 분석 깊이
+                        "budget_tokens": 16000  # 최대 분석 깊이
                     },
                     "messages": [
                         {
@@ -843,12 +846,12 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
             else:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 20000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
+                    "max_tokens": 16000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
                     "temperature": 1.0,   # Extended Thinking 사용 시 반드시 1.0이어야 함
                     "top_p": 0.95,        # Extended Thinking 사용 시 0.95 이상이어야 함
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 32000  # 16000에서 32000으로 증가 (최대 분석 깊이)
+                        "budget_tokens": 16000  # 16000에서 32000으로 증가 (최대 분석 깊이)
                     },
                     "messages": [
                         {
