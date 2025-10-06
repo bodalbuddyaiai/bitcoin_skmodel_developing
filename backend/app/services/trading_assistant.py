@@ -3409,8 +3409,29 @@ class TradingAssistant:
                         # FORCE_CLOSE 작업 취소
                         self._cancel_force_close_job()
                         
-                        # 새로운 분석 작업 예약 (120분 후)
-                        next_analysis_time = datetime.now() + timedelta(minutes=120)
+                        # 현재 가격 조회하여 청산 원인 판단
+                        ticker = self.bitget.get_ticker()
+                        current_price = 0
+                        if ticker and 'data' in ticker:
+                            if isinstance(ticker['data'], list) and ticker['data']:
+                                current_price = float(ticker['data'][0].get('lastPr', 0))
+                            elif isinstance(ticker['data'], dict):
+                                current_price = float(ticker['data'].get('lastPr', 0))
+                        
+                        # 청산 원인 확인
+                        liquidation_reason = self._check_liquidation_reason(current_price)
+                        print(f"청산 원인: {liquidation_reason}")
+                        
+                        # 청산 사유에 따른 재분석 시간 결정
+                        if liquidation_reason == "손절가 도달":
+                            next_analysis_minutes = 5  # Stop loss: 5분 후 재분석
+                            print(f"손절가 도달로 인한 청산 - {next_analysis_minutes}분 후 재분석")
+                        else:
+                            next_analysis_minutes = 120  # 나머지 모든 경우: 120분 후
+                            print(f"{liquidation_reason}로 인한 청산 - {next_analysis_minutes}분 후 재분석")
+                        
+                        # 새로운 분석 작업 예약
+                        next_analysis_time = datetime.now() + timedelta(minutes=next_analysis_minutes)
                         job_id = f"analysis_{next_analysis_time.strftime('%Y%m%d%H%M%S')}"
                         
                         try:
@@ -3449,13 +3470,15 @@ class TradingAssistant:
                                             "event_type": "LIQUIDATION",
                                             "data": {
                                                 "success": True,
-                                                "message": "포지션이 청산되었습니다. 120분 후 새로운 분석이 실행됩니다.",
-                                                "liquidation_info": {},  # 필요한 정보 추가
+                                                "message": f"포지션이 청산되었습니다. {next_analysis_minutes}분 후 새로운 분석이 실행됩니다.",
+                                                "liquidation_info": {
+                                                    "reason": liquidation_reason
+                                                },
                                                 "next_analysis": {
                                                     "job_id": job_id,
                                                     "scheduled_time": next_analysis_time.isoformat(),
-                                                    "reason": "포지션 청산 후 자동 재시작",
-                                                    "expected_minutes": 120
+                                                    "reason": f"{liquidation_reason} 후 자동 재시작",
+                                                    "expected_minutes": next_analysis_minutes
                                                 }
                                             },
                                             "timestamp": datetime.now().isoformat()
