@@ -2708,27 +2708,54 @@ class TradingAssistant:
                 'side': position_data.get('holdSide', '').lower()
             }
 
-            # takeProfit과 stopLoss 값 추가 (이미 ROE 값으로 존재)
-            take_profit = position_data.get('takeProfit', '')
-            stop_loss = position_data.get('stopLoss', '')
+            # 손절/익절 가격 먼저 가져오기 (Bitget API 필드명)
+            stop_loss_price_str = position_data.get('presetStopLossPrice', '')
+            take_profit_price_str = position_data.get('presetStopSurplusPrice', '')
             
-            # 빈 문자열이거나 '0'인 경우 기본값 설정
-            if not take_profit or take_profit == '0' or take_profit == '':
+            # 만약 위 필드가 없으면 다른 가능한 필드명 시도
+            if not stop_loss_price_str:
+                stop_loss_price_str = position_data.get('stopLossPrice', '')
+            if not take_profit_price_str:
+                take_profit_price_str = position_data.get('takeProfitPrice', '')
+            
+            # 진입가 가져오기
+            entry_price = float(position_data.get('openPriceAvg', 0))
+            position_side = position_data.get('holdSide', '').lower()
+            
+            # 손절/익절 가격이 있으면 가격 변동률(%)로 계산, 없으면 기본값 사용
+            if stop_loss_price_str and stop_loss_price_str != '0' and stop_loss_price_str != '' and entry_price > 0:
+                stop_loss_price = float(stop_loss_price_str)
+                # 가격 변동률 계산 (레버리지 미적용)
+                if position_side == 'long':
+                    # 롱: 손절가가 진입가보다 낮음
+                    price_change_pct = abs((entry_price - stop_loss_price) / entry_price * 100)
+                else:  # short
+                    # 숏: 손절가가 진입가보다 높음
+                    price_change_pct = abs((stop_loss_price - entry_price) / entry_price * 100)
+                position_info['stop_loss_roe'] = round(price_change_pct, 2)
+                print(f"손절 ROE 계산: 진입가={entry_price}, 손절가={stop_loss_price}, ROE={price_change_pct:.2f}%")
+            else:
+                position_info['stop_loss_roe'] = 2.0  # 기본값
+                print(f"손절가 정보 없음, 기본값 사용: 2.0%")
+            
+            if take_profit_price_str and take_profit_price_str != '0' and take_profit_price_str != '' and entry_price > 0:
+                take_profit_price = float(take_profit_price_str)
+                # 가격 변동률 계산 (레버리지 미적용)
+                if position_side == 'long':
+                    # 롱: 익절가가 진입가보다 높음
+                    price_change_pct = abs((take_profit_price - entry_price) / entry_price * 100)
+                else:  # short
+                    # 숏: 익절가가 진입가보다 낮음
+                    price_change_pct = abs((entry_price - take_profit_price) / entry_price * 100)
+                position_info['take_profit_roe'] = round(price_change_pct, 2)
+                print(f"익절 ROE 계산: 진입가={entry_price}, 익절가={take_profit_price}, ROE={price_change_pct:.2f}%")
+            else:
                 position_info['take_profit_roe'] = 5.0  # 기본값
-            else:
-                # 문자열을 float로 변환
-                position_info['take_profit_roe'] = float(take_profit)
-            
-            if not stop_loss or stop_loss == '0' or stop_loss == '':
-                position_info['stop_loss_roe'] = 2.0  # 기본값 
-            else:
-                # 문자열을 float로 변환
-                position_info['stop_loss_roe'] = float(stop_loss)
+                print(f"익절가 정보 없음, 기본값 사용: 5.0%")
             
             # 현재 ROE 계산 또는 추가
             leverage = float(position_data.get('leverage', 1))
             mark_price = float(position_data.get('markPrice', 0))
-            entry_price = float(position_data.get('openPriceAvg', 0))
             
             if entry_price > 0 and mark_price > 0:
                 if position_info['side'] == 'long':
@@ -2743,24 +2770,14 @@ class TradingAssistant:
             position_info['leverage'] = leverage
             position_info['entry_time'] = position_data.get('cTime', '')
 
-            # 실제 손절/익절 가격 업데이트 (Bitget API 필드명에 따라 조정 필요)
-            # presetStopSurplusPrice: 익절가, presetStopLossPrice: 손절가
-            stop_loss_price = position_data.get('presetStopLossPrice', '')
-            take_profit_price = position_data.get('presetStopSurplusPrice', '')
+            # 실제 손절/익절 가격을 인스턴스 변수에 저장 (이미 위에서 가져온 값 사용)
+            if stop_loss_price_str and stop_loss_price_str != '0' and stop_loss_price_str != '':
+                self._stop_loss_price = float(stop_loss_price_str)
+                print(f"손절가 인스턴스 변수 업데이트: {self._stop_loss_price}")
 
-            # 만약 위 필드가 없으면 다른 가능한 필드명 시도
-            if not stop_loss_price and not take_profit_price:
-                stop_loss_price = position_data.get('stopLossPrice', '')
-                take_profit_price = position_data.get('takeProfitPrice', '')
-
-            # 손절/익절 가격을 float로 변환하여 저장
-            if stop_loss_price and stop_loss_price != '0' and stop_loss_price != '':
-                self._stop_loss_price = float(stop_loss_price)
-                print(f"손절가 업데이트: {self._stop_loss_price}")
-
-            if take_profit_price and take_profit_price != '0' and take_profit_price != '':
-                self._take_profit_price = float(take_profit_price)
-                print(f"익절가 업데이트: {self._take_profit_price}")
+            if take_profit_price_str and take_profit_price_str != '0' and take_profit_price_str != '':
+                self._take_profit_price = float(take_profit_price_str)
+                print(f"익절가 인스턴스 변수 업데이트: {self._take_profit_price}")
 
             print(f"포지션 정보 업데이트 완료: {position_info}")
             return position_info
@@ -3025,7 +3042,7 @@ class TradingAssistant:
             # AI 값에서 절대값 0.1을 빼서 더 안전한 값으로 설정
             if stop_loss_roe is not None:
                 # stop_loss는 음수 값이므로 절대값을 빼면 더 작은 손실로 설정됨
-                price_stop_loss_pct = abs(stop_loss_roe) - 0.1 if abs(stop_loss_roe) > 0.1 else abs(stop_loss_roe)
+                price_stop_loss_pct = abs(stop_loss_roe) + 0.1 if abs(stop_loss_roe) > 0.1 else abs(stop_loss_roe)
             else:
                 price_stop_loss_pct = 5.0  # 기본값
 
