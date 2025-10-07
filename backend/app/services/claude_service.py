@@ -299,7 +299,7 @@ class ClaudeService:
 - MACD 강한 크로스오버 신호
 - **추세 반대방향으로 최근 100개 평균 캔들길이보다 3배 이상 긴 캔들이 출현하고 동시에 해당 캔들에서 윗꼬리나 아래꼬리가 출현하였을 경우 해당 캔들을 기점으로 추세 반전의 신호로 판단할 것**
 
-### 응답 형식: (아래 응답 형식을 반드시 준수하여 응답할 것)
+### 응답 형식: **아래 응답 형식을 반드시 준수하여 응답할 것**
 ## TRADING_DECISION
 ACTION: [ENTER_LONG/ENTER_SHORT/HOLD]
 POSITION_SIZE: [0.3-0.9] (HOLD 시 생략)
@@ -651,13 +651,14 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
             print(response_text)
             
             # 정규표현식 패턴 수정 (마크다운 형식과 이모티콘 대응)
-            # **ACTION**: 형태와 ACTION: 형태 모두 지원
-            action_pattern = re.compile(r'(?:\*\*)?ACTION(?:\*\*)?:\s*([A-Z_]+)', re.IGNORECASE)
-            position_pattern = re.compile(r'(?:\*\*)?POSITION_SIZE(?:\*\*)?:\s*([\d.]+)', re.IGNORECASE)
-            leverage_pattern = re.compile(r'(?:\*\*)?LEVERAGE(?:\*\*)?:\s*(\d+)', re.IGNORECASE)
-            minutes_pattern = re.compile(r'(?:\*\*)?EXPECTED_MINUTES(?:\*\*)?:\s*(\d+)', re.IGNORECASE)
-            stop_loss_pattern = re.compile(r'(?:\*\*)?STOP_LOSS_ROE(?:\*\*)?:\s*([+-]?[\d.]+)', re.IGNORECASE)
-            take_profit_pattern = re.compile(r'(?:\*\*)?TAKE_PROFIT_ROE(?:\*\*)?:\s*([+-]?[\d.]+)', re.IGNORECASE)
+            # **ACTION**: 또는 **ACTION:** 또는 ACTION: 형태 모두 지원
+            # \*{0,2}는 별표 0~2개, [:\s]*는 콜론과 공백을 유연하게 매칭
+            action_pattern = re.compile(r'\*{0,2}\s*ACTION\s*\*{0,2}\s*:\s*\*{0,2}\s*([A-Z_]+)', re.IGNORECASE)
+            position_pattern = re.compile(r'\*{0,2}\s*POSITION_SIZE\s*\*{0,2}\s*:\s*\*{0,2}\s*([\d.]+)', re.IGNORECASE)
+            leverage_pattern = re.compile(r'\*{0,2}\s*LEVERAGE\s*\*{0,2}\s*:\s*\*{0,2}\s*(\d+)', re.IGNORECASE)
+            minutes_pattern = re.compile(r'\*{0,2}\s*EXPECTED_MINUTES\s*\*{0,2}\s*:\s*\*{0,2}\s*(\d+)', re.IGNORECASE)
+            stop_loss_pattern = re.compile(r'\*{0,2}\s*STOP_LOSS_ROE\s*\*{0,2}\s*:\s*\*{0,2}\s*([+-]?[\d.]+)', re.IGNORECASE)
+            take_profit_pattern = re.compile(r'\*{0,2}\s*TAKE_PROFIT_ROE\s*\*{0,2}\s*:\s*\*{0,2}\s*([+-]?[\d.]+)', re.IGNORECASE)
 
             # TRADING_DECISION 섹션 추출 (이모티콘 포함 대응)
             trading_decision = ""
