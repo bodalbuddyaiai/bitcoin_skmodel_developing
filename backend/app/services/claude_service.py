@@ -630,12 +630,12 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                         sl_roe_str = stop_loss_match.group(1).strip()
                         # +/- 기호 제거하고 절댓값 사용
                         sl_roe = abs(float(sl_roe_str.replace('+', '').replace('-', '')))
-                        sl_roe = round(sl_roe, 1)
+                        sl_roe = round(sl_roe, 2)  # 소수점 둘째자리까지 정확하게
                         print(f"추출된 Stop Loss ROE: {sl_roe}% (원본: {sl_roe_str})")
-                        if 0.5 <= sl_roe <= 50.0:  # 범위를 30.0에서 50.0으로 확장
+                        if sl_roe > 0:  # 양수면 허용
                             stop_loss_roe = sl_roe
                         else:
-                            print(f"Stop Loss ROE가 범위를 벗어남 ({sl_roe}), 기본값 1.5% 사용")
+                            print(f"Stop Loss ROE가 0 이하 ({sl_roe}), 기본값 1.5% 사용")
                     except ValueError as ve:
                         print(f"Stop Loss ROE 변환 실패: {ve}, 기본값 1.5% 사용")
                 
@@ -645,7 +645,7 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                         tp_roe_str = take_profit_match.group(1).strip()
                         # +/- 기호 제거하고 절댓값 사용
                         tp_roe = abs(float(tp_roe_str.replace('+', '').replace('-', '')))
-                        tp_roe = round(tp_roe, 1)
+                        tp_roe = round(tp_roe, 2)  # 소수점 둘째자리까지 정확하게
                         print(f"추출된 Take Profit ROE: {tp_roe}% (원본: {tp_roe_str})")
                         if tp_roe > 0:
                             take_profit_roe = tp_roe
