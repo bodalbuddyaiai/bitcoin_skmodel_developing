@@ -144,13 +144,23 @@ class BitgetService:
                     print(f"Request timed out after {timeout} seconds")
                     return {"code": "TIMEOUT", "data": None, "msg": "Request timed out"}
                 except requests.exceptions.RequestException as e:
-                    print(f"API 요청 오류 ({attempt+1}/{self.retry_count}): {str(e)}")
+                    # 에러 응답 본문 상세 출력
+                    error_detail = str(e)
+                    if hasattr(e, 'response') and e.response is not None:
+                        try:
+                            error_json = e.response.json()
+                            error_detail = f"{str(e)}\n📋 Bitget 응답: {json.dumps(error_json, indent=2, ensure_ascii=False)}"
+                        except:
+                            error_detail = f"{str(e)}\n📋 응답 텍스트: {e.response.text[:500]}"
+                    
+                    print(f"API 요청 오류 ({attempt+1}/{self.retry_count}): {error_detail}")
+                    
                     if attempt < self.retry_count - 1:
                         wait_time = self.retry_delay * (2 ** attempt)  # exponential backoff
                         print(f"요청 실패로 {wait_time}초 후 재시도...")
                         time.sleep(wait_time)
                     else:
-                        print(f"최대 재시도 횟수 초과. 요청 실패: {str(e)}")
+                        print(f"최대 재시도 횟수 초과. 요청 실패: {error_detail}")
                         return {"code": "ERROR", "data": None, "msg": str(e)}
         
             return {"code": "ERROR", "data": None, "msg": "최대 재시도 횟수 초과"}
@@ -566,6 +576,97 @@ class BitgetService:
             return {
                 "success": False,
                 "message": f"Failed to close position: {str(e)}"
+            }
+
+    def partial_close_position(self, percentage=50):
+        """
+        포지션 부분 청산
+        Args:
+            percentage: 청산할 비율 (기본값: 50, 즉 50%)
+        Returns:
+            청산 결과
+        """
+        try:
+            print(f"\n=== 부분 청산 시작 ({percentage}%) ===")
+            
+            # 1. 현재 포지션 확인
+            positions = self.get_positions()
+            if not positions or 'data' not in positions:
+                raise Exception("포지션 정보를 가져올 수 없음")
+            
+            # 2. 청산할 포지션 찾기
+            target_position = None
+            for pos in positions['data']:
+                if float(pos.get('total', 0)) > 0:
+                    target_position = pos
+                    break
+            
+            if not target_position:
+                return {
+                    "success": False,
+                    "message": "청산할 포지션이 없습니다."
+                }
+            
+            # 3. 포지션 정보 추출
+            position_size = float(target_position.get('total', 0))
+            position_side = target_position.get('holdSide')  # 'long' or 'short'
+            
+            print(f"현재 포지션: {position_side}")
+            print(f"포지션 크기: {position_size} BTC")
+            print(f"청산할 비율: {percentage}%")
+            
+            # 4. 청산할 수량 계산
+            close_size = position_size * (percentage / 100)
+            close_size = round(close_size, 4)  # 소수점 4자리로 반올림
+            
+            print(f"청산할 수량: {close_size} BTC")
+            
+            # 5. 반대 방향 주문으로 포지션 축소
+            # 롱 포지션이면 sell 주문, 숏 포지션이면 buy 주문
+            opposite_side = "sell" if position_side == "long" else "buy"
+            
+            endpoint = "/api/v2/mix/order/place-order"
+            body = {
+                "symbol": "BTCUSDT",
+                "productType": "USDT-FUTURES",
+                "marginMode": "crossed",
+                "marginCoin": "USDT",
+                "size": str(close_size),
+                "side": opposite_side,
+                "orderType": "market",
+                "reduceOnly": "YES"  # 포지션 축소만 가능, 새로운 반대 포지션 생성 안 함
+            }
+            
+            print(f"부분 청산 주문: {opposite_side} {close_size} BTC (reduceOnly)")
+            
+            # 6. 주문 실행
+            result = self._make_request("POST", endpoint, body=body)
+            
+            if result and result.get('code') == '00000':
+                print(f"부분 청산 성공: {percentage}% ({close_size} BTC)")
+                return {
+                    "success": True,
+                    "message": f"{percentage}% 부분 청산 완료",
+                    "closed_size": close_size,
+                    "remaining_size": position_size - close_size,
+                    "order_result": result
+                }
+            else:
+                error_msg = result.get('msg', 'Unknown error') if result else 'No response'
+                print(f"부분 청산 실패: {error_msg}")
+                return {
+                    "success": False,
+                    "message": f"부분 청산 실패: {error_msg}",
+                    "order_result": result
+                }
+                
+        except Exception as e:
+            print(f"부분 청산 중 오류 발생: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": f"부분 청산 중 오류: {str(e)}"
             }
 
     def execute_trade(self):

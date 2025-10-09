@@ -154,6 +154,14 @@ class TradingAssistant:
         # 마지막 분석 결과 초기화
         self.last_analysis_result = None
         
+        # 진입 시점 분석 결과 저장 (모니터링용)
+        self._entry_analysis_reason = ""
+        self._entry_analysis_time = None
+        
+        # 모니터링 경보 단계 추적
+        self._monitoring_alert_level = 0  # 0: 정상, 1: 추세약화, 2: 전환징후, 3: 전환확정
+        self._consecutive_hold_count = 0  # 연속 HOLD 카운트
+        
         # 포지션 로깅 관련 속성 초기화
         self._last_position_log_time = time.time()
         self._position_log_interval = 30  # 30초마다 로깅
@@ -654,6 +662,127 @@ class TradingAssistant:
         except Exception as e:
             print(f"FORCE_CLOSE 작업 취소 중 오류 발생: {str(e)}")
 
+    def _generate_market_context(self, candlesticks, technical_indicators, current_price):
+        """시장 맥락 정보 생성"""
+        try:
+            context = {
+                "recent_price_action": "",
+                "support_resistance_events": [],
+                "volume_context": "",
+                "multi_timeframe_consistency": {}
+            }
+            
+            # 1. 최근 1-2시간 가격 변동 요약
+            if '15m' in candlesticks and len(candlesticks['15m']) >= 8:
+                candles_15m = candlesticks['15m'][-8:]  # 최근 2시간 (15분 × 8)
+                start_price = candles_15m[0]['open']
+                highest = max([c['high'] for c in candles_15m])
+                lowest = min([c['low'] for c in candles_15m])
+                
+                price_change_pct = ((current_price - start_price) / start_price) * 100
+                direction = "상승" if price_change_pct > 0 else "하락"
+                
+                context["recent_price_action"] = (
+                    f"최근 2시간 동안 {start_price:.1f}에서 시작하여 "
+                    f"고점 {highest:.1f}, 저점 {lowest:.1f}을 기록했으며 "
+                    f"현재 {current_price:.1f}에서 {abs(price_change_pct):.2f}% {direction} 중입니다."
+                )
+            
+            # 2. 주요 지지/저항선 돌파 이벤트 (최근 24시간)
+            if '1H' in technical_indicators and '1H' in candlesticks:
+                indicators_1h = technical_indicators['1H']
+                candles_1h = candlesticks['1H'][-24:] if len(candlesticks['1H']) >= 24 else candlesticks['1H']
+                
+                # 피보나치 레벨 이벤트 확인
+                if 'fibonacci' in indicators_1h and indicators_1h['fibonacci']:
+                    fib_levels = indicators_1h['fibonacci'].get('levels', {})
+                    for level_name, level_price in fib_levels.items():
+                        if level_price and abs(current_price - level_price) / current_price < 0.02:  # 2% 이내
+                            position = "근처" if abs(current_price - level_price) / current_price < 0.005 else "접근 중"
+                            context["support_resistance_events"].append(
+                                f"피보나치 {level_name} 레벨({level_price:.1f}) {position}"
+                            )
+                
+                # 피벗 포인트 이벤트 확인
+                if 'pivot_points' in indicators_1h:
+                    pivot_data = indicators_1h['pivot_points']
+                    pivot = pivot_data.get('pivot')
+                    if pivot and abs(current_price - pivot) / current_price < 0.015:  # 1.5% 이내
+                        context["support_resistance_events"].append(
+                            f"피벗 포인트({pivot:.1f}) 근처"
+                        )
+            
+            # 3. 거래량 프로파일 맥락
+            if '1H' in technical_indicators:
+                volume_analysis = technical_indicators['1H'].get('volume_analysis', {})
+                relative_volume = volume_analysis.get('relative_volume')
+                volume_trend = volume_analysis.get('volume_trend')
+                
+                if relative_volume:
+                    if relative_volume > 2.5:
+                        volume_desc = f"평균 대비 {relative_volume:.1f}배 급증 (매우 높은 수준)"
+                    elif relative_volume > 1.5:
+                        volume_desc = f"평균 대비 {relative_volume:.1f}배 증가 (높은 수준)"
+                    elif relative_volume < 0.7:
+                        volume_desc = f"평균 대비 {relative_volume:.1f}배 감소 (낮은 수준)"
+                    else:
+                        volume_desc = f"평균 대비 {relative_volume:.1f}배 (정상 수준)"
+                    
+                    context["volume_context"] = f"현재 거래량은 {volume_desc}이며, 추세는 {volume_trend}입니다."
+            
+            # 4. 다중 시간대 추세 일관성 점수 (0-100)
+            timeframes_to_check = ['15m', '1H', '4H']
+            trend_directions = []
+            
+            for tf in timeframes_to_check:
+                if tf in technical_indicators:
+                    indicators = technical_indicators[tf]
+                    ma_data = indicators.get('moving_averages', {}).get('exponential', {})
+                    
+                    ema21 = ma_data.get('ema21')
+                    ema55 = ma_data.get('ema55')
+                    ema200 = ma_data.get('ema200')
+                    
+                    if ema21 and ema55 and ema200:
+                        if ema21 > ema55 > ema200 and current_price > ema21:
+                            trend_directions.append('상승')
+                        elif ema21 < ema55 < ema200 and current_price < ema21:
+                            trend_directions.append('하락')
+                        else:
+                            trend_directions.append('중립')
+            
+            # 일관성 점수 계산
+            if trend_directions:
+                uptrend_count = trend_directions.count('상승')
+                downtrend_count = trend_directions.count('하락')
+                
+                if uptrend_count >= 2:
+                    consistency_score = (uptrend_count / len(trend_directions)) * 100
+                    dominant_trend = '상승'
+                elif downtrend_count >= 2:
+                    consistency_score = (downtrend_count / len(trend_directions)) * 100
+                    dominant_trend = '하락'
+                else:
+                    consistency_score = 0
+                    dominant_trend = '혼재'
+                
+                context["multi_timeframe_consistency"] = {
+                    "score": round(consistency_score),
+                    "dominant_trend": dominant_trend,
+                    "details": f"15분/1시간/4시간 추세: {', '.join(trend_directions)}"
+                }
+            
+            return context
+            
+        except Exception as e:
+            print(f"시장 맥락 생성 중 오류: {str(e)}")
+            return {
+                "recent_price_action": "분석 불가",
+                "support_resistance_events": [],
+                "volume_context": "분석 불가",
+                "multi_timeframe_consistency": {}
+            }
+
     async def _collect_market_data(self):
         """시장 데이터 수집"""
         try:
@@ -702,8 +831,8 @@ class TradingAssistant:
                         "24h_volume": float(ticker_data['baseVolume']),
                     },
                     "candlesticks": {},
-                    "technical_indicators": {}
-                    # account, positions, orderbook 제거 - AI에게 전달하지 않음
+                    "technical_indicators": {},
+                    "market_context": {}  # 맥락 정보 추가
                 }
                 
                 # 2. 여러 시간대의 캔들스틱 데이터 수집
@@ -766,6 +895,15 @@ class TradingAssistant:
                 
                 # 포지션 정보는 내부 관리용으로만 포맷팅 (formatted_data에 추가하지 않음)
                 self._format_position_data(positions)  # 내부 상태 업데이트용
+                
+                # 4. 시장 맥락 정보 생성
+                print("\n시장 맥락 정보 생성 중...")
+                formatted_data['market_context'] = self._generate_market_context(
+                    formatted_data['candlesticks'],
+                    formatted_data['technical_indicators'],
+                    current_price
+                )
+                print(f"맥락 정보 생성 완료: {formatted_data['market_context']}")
                 
                 print("=== 시장 데이터 수집 완료 ===\n")
                 return formatted_data
@@ -2145,6 +2283,16 @@ class TradingAssistant:
                     # 포지션 방향 결정
                     position_side = 'long' if analysis_result['action'] == 'ENTER_LONG' else 'short'
                     
+                    # 진입 시점의 분석 결과 저장 (모니터링용)
+                    self._entry_analysis_reason = analysis_result.get('reason', '')
+                    self._entry_analysis_time = datetime.now()
+                    self._monitoring_alert_level = 0  # 경보 단계 초기화
+                    self._consecutive_hold_count = 0  # 연속 HOLD 카운트 초기화
+                    
+                    print(f"\n=== 진입 분석 결과 저장 ===")
+                    print(f"진입 시간: {self._entry_analysis_time}")
+                    print(f"진입 근거 길이: {len(self._entry_analysis_reason)} 문자")
+                    
                     # 모니터링 작업 스케줄링
                     self._schedule_monitoring_jobs(expected_minutes, position_side)
             elif analysis_result['action'] == 'HOLD':
@@ -2389,15 +2537,25 @@ class TradingAssistant:
             finally:
                 market_data_loop.close()
             
-            # 초기 분석과 동일한 AI 모델과 프롬프트로 재분석 실행
-            print(f"\n=== AI 재분석 실행 (모델: {self.ai_service.get_current_model()}) ===")
+            # 포지션 정보를 AI에 전달하기 위한 데이터 구성
+            ai_position_info = {
+                'side': current_position_side,
+                'entry_price': position_info['entry_price'],
+                'roe': position_info['roe'],
+                'take_profit_roe': position_info['take_profit_roe'],
+                'stop_loss_roe': position_info['stop_loss_roe'],
+                'entry_time': position_info.get('entry_time', '')
+            }
             
-            # analyze_market_data 메서드 사용 (monitor_position 대신)
+            # monitor_position 메서드 사용 (본분석과 동일한 데이터 + 추가 맥락)
+            print(f"\n=== AI 모니터링 분석 실행 (모델: {self.ai_service.get_current_model()}) ===")
+            print(f"진입 근거 전달: {len(self._entry_analysis_reason)} 문자")
+            
             analysis_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(analysis_loop)
             try:
                 analysis_result = analysis_loop.run_until_complete(
-                    self.ai_service.analyze_market_data(market_data)
+                    self.ai_service.monitor_position(market_data, ai_position_info, self._entry_analysis_reason)
                 )
             finally:
                 analysis_loop.close()
@@ -2406,27 +2564,60 @@ class TradingAssistant:
             print(f"AI 분석 액션: {analysis_result['action']}")
             print(f"AI 분석 이유: {analysis_result.get('reason', 'N/A')[:200]}...")
 
-            # 포지션 방향과 분석 결과 비교
+            # 3단계 경보 시스템 구현
             should_close = False
+            close_percentage = 100  # 청산 비율 (100% 또는 50%)
             close_reason = ""
+            
+            opposite_action = 'ENTER_SHORT' if current_position_side == 'long' else 'ENTER_LONG'
 
-            if current_position_side == 'long' and analysis_result['action'] == 'ENTER_SHORT':
-                should_close = True
-                close_reason = "롱 포지션 중이나 AI가 숏 신호를 제시"
-            elif current_position_side == 'short' and analysis_result['action'] == 'ENTER_LONG':
-                should_close = True
-                close_reason = "숏 포지션 중이나 AI가 롱 신호를 제시"
-            elif analysis_result['action'] == 'HOLD':
-                print("AI가 HOLD를 제시했으므로 현재 포지션을 유지합니다.")
+            # 1단계: 추세 약화 감지 (HOLD)
+            if analysis_result['action'] == 'HOLD':
+                self._consecutive_hold_count += 1
+                print(f"\n[1단계] 추세 약화 감지: HOLD 신호 ({self._consecutive_hold_count}회 연속)")
+                
+                if self._monitoring_alert_level < 1:
+                    self._monitoring_alert_level = 1
+                    print("경보 단계 1로 상승: 추세 약화")
+                
+                # 2회 연속 HOLD이면 2단계로
+                if self._consecutive_hold_count >= 2:
+                    self._monitoring_alert_level = 2
+                    print("경보 단계 2로 상승: 2회 연속 HOLD")
+            
+            # 2단계: 추세 전환 징후 (반대 신호 1회 또는 경보 2단계)
+            elif analysis_result['action'] == opposite_action:
+                self._consecutive_hold_count = 0  # 초기화
+                
+                if self._monitoring_alert_level < 2:
+                    self._monitoring_alert_level = 2
+                    print(f"\n[2단계] 추세 전환 징후: 반대 방향 신호 ({opposite_action})")
+                    should_close = True
+                    close_percentage = 50  # 50% 부분 청산
+                    close_reason = f"추세 전환 징후 감지 - 반대 방향 신호 발생 (50% 부분 청산)"
+                else:
+                    # 이미 경보 2단계 이상이면 3단계로
+                    self._monitoring_alert_level = 3
+                    print(f"\n[3단계] 추세 전환 확정: 반대 방향 신호 재발생 또는 지속")
+                    should_close = True
+                    close_percentage = 100  # 100% 전체 청산
+                    close_reason = f"추세 전환 확정 - 반대 방향 신호 지속 (100% 청산)"
+            
+            # 같은 방향 신호이면 경보 초기화
             else:
-                print(f"AI가 같은 방향({analysis_result['action']})을 제시했으므로 포지션을 유지합니다.")
+                self._consecutive_hold_count = 0
+                self._monitoring_alert_level = 0
+                print(f"\n✅ 포지션 유지: AI가 같은 방향({analysis_result['action']}) 신호 제시")
 
             # 모니터링 결과 정의
             monitoring_result = {
                 'position_side': current_position_side,
                 'ai_action': analysis_result['action'],
                 'should_close': should_close,
+                'close_percentage': close_percentage,
                 'close_reason': close_reason if should_close else None,
+                'alert_level': self._monitoring_alert_level,
+                'consecutive_hold': self._consecutive_hold_count,
                 'position_info': position_info,
                 'analysis_reason': analysis_result.get('reason', 'N/A')
             }
@@ -2434,19 +2625,61 @@ class TradingAssistant:
             # 포지션 청산 처리
             if should_close:
                 print(f"\n⚠️ 포지션 청산 필요: {close_reason}")
-                print("포지션을 강제 청산합니다.")
+                print(f"청산 비율: {close_percentage}%")
 
-                # 강제 청산 실행
-                close_loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(close_loop)
-                try:
-                    close_loop.run_until_complete(
-                        self._force_close_position_with_reschedule(job_id, close_reason)
-                    )
-                finally:
-                    close_loop.close()
+                if close_percentage == 100:
+                    # 100% 청산 - 기존 로직 사용
+                    close_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(close_loop)
+                    try:
+                        close_loop.run_until_complete(
+                            self._force_close_position_with_reschedule(job_id, close_reason)
+                        )
+                    finally:
+                        close_loop.close()
+                elif close_percentage == 50:
+                    # 50% 부분 청산 실행
+                    print(f"50% 부분 청산을 실행합니다...")
+                    partial_close_result = self.bitget.partial_close_position(percentage=50)
+                    
+                    if partial_close_result.get('success'):
+                        print(f"✅ 부분 청산 성공")
+                        print(f"청산된 수량: {partial_close_result.get('closed_size')} BTC")
+                        print(f"남은 포지션: {partial_close_result.get('remaining_size')} BTC")
+                        
+                        # 웹소켓으로 부분 청산 알림
+                        if self.websocket_manager:
+                            broadcast_loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(broadcast_loop)
+                            try:
+                                broadcast_loop.run_until_complete(
+                                    self.websocket_manager.broadcast({
+                                        "type": "partial_close",
+                                        "event_type": "PARTIAL_CLOSE",
+                                        "data": {
+                                            "success": True,
+                                            "message": f"추세 전환 징후로 50% 부분 청산 완료",
+                                            "close_reason": close_reason,
+                                            "closed_size": partial_close_result.get('closed_size'),
+                                            "remaining_size": partial_close_result.get('remaining_size'),
+                                            "alert_level": self._monitoring_alert_level,
+                                            "next_monitoring": "4시간 후"
+                                        },
+                                        "timestamp": datetime.now().isoformat()
+                                    })
+                                )
+                            finally:
+                                broadcast_loop.close()
+                    else:
+                        print(f"❌ 부분 청산 실패: {partial_close_result.get('message')}")
+                        print(f"다음 모니터링에서 100% 청산을 시도합니다.")
+                        # 부분 청산 실패 시 경보 단계를 3으로 올려서 다음에 100% 청산
+                        self._monitoring_alert_level = 3
             else:
-                print("\n✅ 포지션 유지: 현재 포지션 방향과 AI 분석이 일치하거나 HOLD 신호")
+                print(f"\n현재 경보 단계: {self._monitoring_alert_level}")
+                print(f"연속 HOLD 횟수: {self._consecutive_hold_count}")
+                if self._monitoring_alert_level > 0:
+                    print("⚠️ 주의: 추세 약화 징후가 감지되었습니다. 다음 모니터링을 주의 깊게 확인하세요.")
                 print(f"다음 모니터링: 4시간 후")
 
             # 웹소켓으로 모니터링 결과 전송

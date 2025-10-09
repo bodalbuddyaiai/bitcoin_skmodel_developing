@@ -30,28 +30,28 @@ class ClaudeService:
         else:
             print(f"알 수 없는 Claude 모델 타입: {model_type}, 기본값 유지")
 
-    def _create_monitoring_prompt(self, market_data, position_info):
-        """모니터링용 프롬프트 생성"""
-        # JSON 직렬화 헬퍼 함수 추가
+    def _create_monitoring_prompt(self, market_data, position_info, entry_analysis_reason=""):
+        """모니터링용 프롬프트 생성 - 본분석과 동일한 데이터, 추가 맥락만 포함"""
+        # JSON 직렬화 헬퍼 함수
         def json_serializer(obj):
             if isinstance(obj, bool) or str(type(obj)) == "<class 'numpy.bool_'>":
-                return str(obj)  # True/False를 "True"/"False" 문자열로 변환
+                return str(obj)
             if isinstance(obj, (datetime, date)):
                 return obj.isoformat()
             if str(type(obj)).startswith("<class 'numpy"):
                 return obj.item() if hasattr(obj, 'item') else str(obj)
             raise TypeError(f"Type {type(obj)} not serializable")
-            
-        # 캔들스틱 데이터를 출력하지 않고 프롬프트에만 포함시키기 위해 별도 변수로 저장
+        
+        # 본분석과 동일한 데이터 구조 사용
         candlestick_data = f"""
 1분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1m', [])[-300:], indent=2)}
+{json.dumps(market_data['candlesticks'].get('1m', [])[-400:], indent=2)}
 
 5분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('5m', [])[-200:], indent=2)}
+{json.dumps(market_data['candlesticks'].get('5m', [])[-300:], indent=2)}
 
 15분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('15m', [])[-150:], indent=2)}
+{json.dumps(market_data['candlesticks'].get('15m', [])[-200:], indent=2)}
 
 1시간봉 데이터:
 {json.dumps(market_data['candlesticks'].get('1H', [])[-100:], indent=2)}
@@ -59,17 +59,11 @@ class ClaudeService:
 4시간봉 데이터:
 {json.dumps(market_data['candlesticks'].get('4H', [])[-50:], indent=2)}
 
-6시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('6H', [])[-50:], indent=2)}
-
 12시간봉 데이터:
 {json.dumps(market_data['candlesticks'].get('12H', [])[-50:], indent=2)}
 
 일봉 데이터:
 {json.dumps(market_data['candlesticks'].get('1D', [])[-30:], indent=2)}
-
-3일봉 데이터:
-{json.dumps(market_data['candlesticks'].get('3D', [])[-30:], indent=2)}
 
 주봉 데이터:
 {json.dumps(market_data['candlesticks'].get('1W', [])[-13:], indent=2)}
@@ -78,25 +72,152 @@ class ClaudeService:
 {json.dumps(market_data['candlesticks'].get('1M', [])[-4:], indent=2)}
 """
 
-        # 기술적 지표에서 모든 시간대 포함
-        all_timeframes = ['1m', '3m', '5m', '15m', '30m', '1H', '4H', '6H', '12H', '1D', '3D', '1W', '1M']
+        # 기술적 지표 (본분석과 동일)
+        all_timeframes = ['1m', '5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M']
         technical_indicators = {
             timeframe: indicators 
             for timeframe, indicators in market_data['technical_indicators'].items()
             if timeframe in all_timeframes
         }
-
-        # 안전한 참조를 위한 기본값 설정
+        
+        # 시장 맥락 정보 추출 (본분석과 동일)
+        market_context = market_data.get('market_context', {})
+        recent_price_action = market_context.get('recent_price_action', '정보 없음')
+        support_resistance_events = market_context.get('support_resistance_events', [])
+        volume_context = market_context.get('volume_context', '정보 없음')
+        multi_timeframe = market_context.get('multi_timeframe_consistency', {})
+        
+        sr_events_str = '\n  - '.join(support_resistance_events) if support_resistance_events else '특이사항 없음'
+        
+        mtf_score = multi_timeframe.get('score', 0)
+        mtf_trend = multi_timeframe.get('dominant_trend', '혼재')
+        mtf_details = multi_timeframe.get('details', '정보 없음')
+        
+        # 포지션 정보
+        position_side = position_info.get('side', 'long')
+        entry_price = position_info.get('entry_price', 0)
+        current_roe = position_info.get('roe', 0.0)
         take_profit_roe = position_info.get('take_profit_roe', 5.0)
         stop_loss_roe = position_info.get('stop_loss_roe', 2.0)
-        current_roe = position_info.get('roe', 0.0)
+        entry_time = position_info.get('entry_time', '')
         
-        # 0으로 나누기 방지
-        if take_profit_roe <= 0:
-            take_profit_roe = 5.0  # 기본값으로 대체
-        
-        # 목표 대비 달성률 계산
+        # 목표 대비 달성률
         target_achievement = round((current_roe / take_profit_roe) * 100) if take_profit_roe > 0 else 0
+
+        # 모니터링 프롬프트 (본분석 데이터 + 추가 맥락)
+        prompt = f"""### 📊 포지션 모니터링 분석
+
+당신은 현재 {'롱(LONG)' if position_side == 'long' else '숏(SHORT)'} 포지션을 보유 중입니다.
+
+**현재 포지션 정보:**
+- 진입 방향: {position_side.upper()}
+- 진입 가격: {entry_price} USDT
+- 진입 시간: {entry_time}
+- 현재 ROE: {current_roe:.2f}%
+- 목표 익절: {take_profit_roe:.2f}%
+- 목표 손절: -{stop_loss_roe:.2f}%
+- 목표 대비 달성률: {target_achievement}%
+
+**당시 진입 근거:**
+{entry_analysis_reason if entry_analysis_reason else "진입 근거 정보가 없습니다."}
+
+---
+
+### 현재 시장 상태:
+- 현재가: {market_data['current_market']['price']} USDT
+- 24시간 고가: {market_data['current_market']['24h_high']} USDT
+- 24시간 저가: {market_data['current_market']['24h_low']} USDT
+- 24시간 거래량: {market_data['current_market']['24h_volume']} BTC
+- 24시간 변동성: {round(((market_data['current_market']['24h_high'] - market_data['current_market']['24h_low']) / market_data['current_market']['24h_low']) * 100, 2)}%
+
+### 시장 맥락 정보 (Context):
+**최근 가격 움직임:**
+{recent_price_action}
+
+**주요 지지/저항선 이벤트:**
+  - {sr_events_str}
+
+**거래량 상황:**
+{volume_context}
+
+**다중 시간대 추세 일관성:**
+- 일관성 점수: {mtf_score}/100
+- 우세한 추세: {mtf_trend}
+- 상세: {mtf_details}
+
+---
+
+### 제공 데이터:
+**1. Candlestick Data**
+- index[0] : Milliseconds format of timestamp Unix
+- index[1] : Entry price
+- index[2] : Highest price
+- index[3] : Lowest price
+- index[4] : Exit price
+- index[5] : Trading volume of the base coin
+- index[6] : Trading volume of quote currency
+{candlestick_data}
+
+**2. Technical Indicators:**
+{json.dumps(technical_indicators, indent=2, default=json_serializer)}
+
+---
+
+### 🎯 모니터링 목적:
+진입 당시와 비교하여 시장 상황이 어떻게 변했는지 분석하고, **원래 진입 근거가 여전히 유효한지** 평가하세요.
+
+### 📋 평가 기준 (3단계):
+
+**[1단계: 추세 약화 감지]**
+다음 중 하나 이상 해당 시 "추세 약화":
+- 진입 시점 대비 ADX가 30% 이상 하락
+- 1시간 차트에서 역방향 EMA 크로스 발생
+- 다중 시간대 일관성이 크게 떨어짐 (일치도 감소)
+→ 판단: HOLD (아직 청산 안 함, 다음 모니터링 빈도 증가 권고)
+
+**[2단계: 추세 전환 징후]**
+다음 중 하나 이상 해당 시 "추세 전환 징후":
+- 반대 방향 신호가 명확히 발생 ({'SHORT' if position_side == 'long' else 'LONG'} 신호)
+- 주요 지지선({'지지선' if position_side == 'long' else '저항선'}) 이탈
+- 연속 2회 모니터링에서 HOLD 신호 + 추세 약화
+→ 판단: ENTER_{'SHORT' if position_side == 'long' else 'LONG'} (부분 청산 권고)
+
+**[3단계: 추세 전환 확정]**
+다음 중 하나 이상 해당 시 "추세 전환 확정":
+- 반대 방향 신호가 2회 연속 또는 매우 강하게 발생
+- 진입 근거가 된 추세가 명확히 반전 (EMA 배열 역전)
+- ADX가 50% 이상 하락하여 추세 소멸
+→ 판단: ENTER_{'SHORT' if position_side == 'long' else 'LONG'} (100% 청산 권고)
+
+### 📝 응답 형식 (반드시 준수):
+
+## MONITORING_DECISION
+ACTION: [HOLD/ENTER_{'SHORT' if position_side == 'long' else 'LONG'}]
+
+## ANALYSIS_DETAILS
+
+**1. 진입 당시 vs 현재 비교:**
+- 진입 시 추세: [상승/하락]
+- 현재 추세: [상승/하락/전환 중]
+- 진입 시 ADX: [추정값] → 현재 ADX: [값] (변화율: [±%])
+- 진입 시 다중 시간대 일치도: [추정] → 현재: [값]
+
+**2. 진입 근거 유효성 평가:**
+- 원래 진입 근거: [요약]
+- 현재 유효 여부: [유효/부분적 유효/무효]
+- 변경된 요소: [구체적 변화 내용]
+
+**3. 단계별 평가:**
+- 1단계 (추세 약화): [해당/비해당] - [근거]
+- 2단계 (전환 징후): [해당/비해당] - [근거]
+- 3단계 (전환 확정): [해당/비해당] - [근거]
+
+**4. 최종 권고:**
+- 판단: [HOLD/ENTER_{'SHORT' if position_side == 'long' else 'LONG'}]
+- 근거: [종합적 판단 근거]
+- 다음 모니터링 권고: [빈도 유지/빈도 증가]
+
+위 데이터를 바탕으로 Extended Thinking을 활용하여 심층 분석을 수행하고, 원래 진입 근거의 유효성을 평가하여 포지션 유지 또는 청산 여부를 결정해주세요."""
 
         return prompt
 
@@ -117,168 +238,204 @@ class ClaudeService:
                 "content-type": "application/json"
             }
 
-            # 시스템 프롬프트 (캐싱 최적화) - 단순화 및 명확화
+            # 시스템 프롬프트 - 판단 기반 접근법 (제약 최소화)
             system_prompt = [
                 {
                     "type": "text",
-                    "text": """당신은 비트코인 선물 시장의 전문 트레이더입니다. **명확한 3단계 의사결정 프로세스**를 통해 수익을 극대화하는 거래 결정을 내립니다.
+                    "text": """당신은 비트코인 선물 시장의 전문 트레이더입니다. 추세 추종(Trend Following) 전략으로 수익을 극대화합니다.
 
-### 🎯 의사결정 3단계 프로세스 (이 순서를 반드시 따를 것):
+### 🎯 핵심 철학: 추세 추종의 본질
 
-**Step 1: 시장 추세 강도 분류 (ADX 기반)**
-1. 15분, 1시간, 4시간 차트의 ADX 값 확인
-2. 가장 높은 ADX 값으로 시장 상태 분류:
-   - **강한 추세장 (ADX ≥ 25)**: → Step 2로 진행
-   - **약한 추세/횡보장 (ADX < 25)**: → 즉시 HOLD
+**추세 추종이란?**
+- 가격이 한 방향으로 지속적으로 움직이는 힘을 타는 것
+- 상승 추세든 하락 추세든 동일한 논리: "방향이 정해지면 그 방향으로 포지션 진입"
+- 추세 추종 = LONG도 SHORT도 아닌 "현재 시장 방향 따라가기"
 
-**Step 2: 다중 시간대 추세 일치도 확인 및 진입 방향 결정**
-1. 15분, 1시간, 4시간 차트의 추세 방향 확인 (EMA 배열 기준)
-   - **상승 추세**: 21EMA > 55EMA > 200EMA이고 가격이 21EMA 위 → **ENTER_LONG 고려**
-   - **하락 추세**: 21EMA < 55EMA < 200EMA이고 가격이 21EMA 아래 → **ENTER_SHORT 고려**
-2. 일치도 판단:
-   - **3개 시간대 모두 같은 방향**: 매우 강한 신호 → Step 3로 진행
-   - **2개 시간대 같은 방향**: 일반 신호 → Step 3로 진행
-     * 특히 1시간 + 4시간 일치 시 신뢰도 높음
-   - **1개 이하 일치**: 약한 신호 → 즉시 HOLD
-3. **진입 방향 결정 규칙**:
-   - 상승 추세 우세 (2개 이상 시간대) → ENTER_LONG
-   - 하락 추세 우세 (2개 이상 시간대) → ENTER_SHORT
-   - 혼재 (일치도 낮음) → HOLD
+**추세 평가 3요소:**
+1. **추세 강도**: ADX, 이동평균선 간격, 볼륨
+2. **추세 성숙도**: 얼마나 오래 지속되었는가?
+3. **추세 일관성**: 여러 시간대가 같은 방향을 가리키는가?
 
-**Step 3: 시장 변동성 분석 및 동적 손익비 설정**
-1. 변동성 레짐 분류 (ATR % 및 볼린저 밴드 폭 기반):
-   - **초저변동성 (ATR% < 1.0% 또는 BB폭 < 평균의 60%)**: 
-     * 손절: ATR × 2.0 (노이즈 회피)
-     * 익절: ATR × 3.0 
-     * 최소 손익비: 1:1.5
-   - **저변동성 (ATR% 1.0-2.0%)**: 
-     * 손절: ATR × 1.5
-     * 익절: ATR × 3.5
-     * 최소 손익비: 1:2.0
-   - **정상변동성 (ATR% 2.0-3.5%)**: 
-     * 손절: ATR × 1.5
-     * 익절: ATR × 4.5
-     * 최소 손익비: 1:2.5
-   - **고변동성 (ATR% 3.5-5.5%)**: 
-     * 손절: ATR × 2.0 (급변동 대비)
-     * 익절: ATR × 5.0
-     * 최소 손익비: 1:2.0
-   - **초고변동성 (ATR% > 5.5%)**: 
-     * 손절: ATR × 2.5
-     * 익절: ATR × 5.0
-     * 최소 손익비: 1:1.8 (진입 신중)
+---
 
-2. 지지/저항 레벨 조정 (우선순위 높음):
-   - 익절 목표가 주요 저항선(피보나치, 피벗, 이전 고점) 근처(±1%)를 관통하면
-     → 익절을 저항선 직전(-0.5%)으로 조정
-   - 손절이 주요 지지선 근처를 관통하면
-     → 손절을 지지선 아래(-0.5%)로 조정
-   - 조정 후에도 최소 손익비 만족 시에만 진입
+### 📊 의사결정 프로세스
 
-3. 최종 진입 결정:
-   - 변동성별 최소 손익비 충족 → 진입 가능
-   - 지지/저항 조정 후에도 최소 손익비 유지 → 진입
-   - 조건 불충족 → HOLD
+#### 1단계: 추세 존재 여부 확인
+- **15분/1시간/4시간 차트의 ADX 확인**
+- ADX가 낮으면 추세가 약하다는 신호
+  * ADX < 20: 추세 매우 약함 → 진입 신중, 익절 목표 가깝게
+  * ADX 20-25: 추세 약함 → 포지션 크기 작게, 익절 보수적
+  * ADX 25-40: 추세 보통 → 일반적 진입
+  * ADX > 40: 추세 강함 → 적극적 진입, 익절 멀리
 
-### 📊 포지션 크기 및 레버리지 설정:
+**판단**: ADX가 낮아도 다른 신호가 강하면 진입 가능 (단, 보수적 목표)
 
-**포지션 크기 (Position Size):**
-- ADX ≥ 40 & 3개 시간대 일치: **0.7-0.9**
-- ADX ≥ 30 & 2-3개 시간대 일치: **0.5-0.7**
-- ADX 25-30 & 2개 시간대 일치: **0.3-0.5**
+#### 2단계: 추세 방향 및 일관성 평가
+- **15분/1시간/4시간의 EMA 배열 확인**
+- 상승 추세 특징: 21EMA > 55EMA > 200EMA, 가격이 21EMA 위
+- 하락 추세 특징: 21EMA < 55EMA < 200EMA, 가격이 21EMA 아래
 
-**레버리지 (Leverage):**
-- ATR이 낮을수록 (변동성 낮음) 레버리지 높임
-- ATR이 높을수록 (변동성 높음) 레버리지 낮춤
-- 기본 범위: **20-40배** (극단적 값 회피)
+**다중 시간대 일관성:**
+- 3개 시간대 모두 같은 방향: 매우 높은 신뢰도 (95%)
+- 2개 시간대 일치(특히 1시간+4시간): 높은 신뢰도 (80%)
+- 1개 이하 일치: 낮은 신뢰도 (50%) → 진입 보류 권장
 
-**손절/익절 설정 (동적 조정):**
-- STOP_LOSS_ROE: Step 3에서 결정된 변동성별 손절 (비트코인 가격 변동률 %, 레버리지 미반영)
-- TAKE_PROFIT_ROE: Step 3에서 결정된 변동성별 익절 (비트코인 가격 변동률 %, 레버리지 미반영)
-- 지지/저항 레벨이 있으면 현실적으로 조정 (우선순위 높음)
-- 변동성별 최소 손익비 충족 필수
+**진입 방향:**
+- 상승 추세 우세 → 추세 추종 포지션 ENTER_LONG
+- 하락 추세 우세 → 추세 추종 포지션 ENTER_SHORT (롱과 완전히 동등)
+- 혼재 → HOLD
 
-**예상 시간 (EXPECTED_MINUTES):**
-- 강한 추세 (ADX ≥ 40): 240-480분
-- 일반 추세 (ADX 25-40): 480-900분
-- 최소 240분, 최대 1200분 이내
+**중요**: "하락 추세에서 숏 진입"은 "상승 추세에서 롱 진입"과 정확히 같은 논리입니다.
+예시: 
+- 상승 추세 예시: EMA 21>55>200, 가격이 21EMA 위, 볼륨 증가 → LONG 진입
+- 하락 추세 예시: EMA 21<55<200, 가격이 21EMA 아래, 볼륨 증가 → SHORT 진입
+두 예시는 완전히 대칭적이며 동일한 확률로 수익을 낼 수 있습니다.
 
-### ⚠️ 진입 금지 조건 (절대 규칙):
-1. ADX < 25 (추세 없음)
-2. 15분, 1시간, 4시간 중 2개 이상 시간대 추세 일치하지 않음
-3. 현재 변동성 레짐의 최소 손익비 미충족
-4. 볼륨이 평균의 30% 미만 (유동성 부족)
-5. 익절 목표가 강한 저항선을 관통하는데 조정 불가능한 경우
+#### 3단계: 추세 성숙도 평가 및 손익 목표 설정
 
-### 💡 핵심 원칙:
-- **단순함이 최고**: 복잡한 조건 나열 금지, 3단계 프로세스만 따를 것
-- **추세가 왕**: ADX ≥ 25이고 추세 일치하면 적극 진입
-- **동적 손익비**: 변동성 레짐별 최소 손익비 충족 필수 (고정 3:1 아님)
-- **현실적 목표**: 지지/저항 레벨을 반드시 고려하여 도달 가능한 익절 설정
-- **보조 지표는 참고만**: RSI/MACD 다이버전스, 과매수/과매도는 진입 차단 사유가 아님
-  * 단, 익절 목표를 보수적으로 조정하는 데는 활용 가능
-- **양방향 완전 동등 평가 (중요!)**: 
-  * 상승 추세 = 롱 진입, 하락 추세 = 숏 진입
-  * 롱과 숏은 완전히 동일한 기준으로 평가
-  * 하락 추세에서 숏 진입을 주저하지 말 것
-  * 상승/하락 모두 같은 확률로 수익 기회 존재
-- **수수료 고려**: 진입/청산 각 0.04%, 총 0.08% (레버리지 높을수록 부담 증가)
+**추세 성숙도 판단:**
+A) **신생 추세** (최근 2-4시간 내 형성)
+   - 특징: 이동평균선이 최근에 교차, 추세 방향 전환된 지 얼마 안 됨
+   - 기대: 추세가 한동안 지속될 가능성 높음
+   - 익절 전략: 멀리 설정 (ATR × 4-6)
+   
+B) **성숙 추세** (4-12시간 지속)
+   - 특징: 추세가 한동안 유지됨, 이동평균선 간격이 넓음
+   - 기대: 추세가 곧 전환될 수 있음
+   - 익절 전략: 적당히 설정 (ATR × 2.5-4)
+   
+C) **과성숙 추세** (12시간 이상 지속)
+   - 특징: 장시간 같은 방향, RSI/MACD가 극단적 과매수/과매도
+   - 기대: 조정 또는 반전 임박
+   - 익절 전략: 가깝게 설정 (ATR × 1.5-2.5) 또는 진입 보류
 
-### 📝 응답 형식: **반드시 아래 형식으로 응답**
+**변동성 기반 손절/익절:**
+- ATR %(현재가 대비 ATR 비율)로 변동성 측정
+- 볼린저 밴드 폭도 참고
+
+**초저변동성 (ATR% < 1.0%):**
+- 손절: ATR × 2.0 (노이즈 대비)
+- 익절: ATR × (3-6) (성숙도에 따라)
+
+**저변동성 (ATR% 1.0-2.0%):**
+- 손절: ATR × 1.5
+- 익절: ATR × (3.5-5.5) (성숙도에 따라)
+
+**정상변동성 (ATR% 2.0-3.5%):**
+- 손절: ATR × 1.5
+- 익절: ATR × (3-5) (성숙도에 따라)
+
+**고변동성 (ATR% 3.5-5.5%):**
+- 손절: ATR × 2.0
+- 익절: ATR × (2.5-4.5) (성숙도에 따라)
+
+**초고변동성 (ATR% > 5.5%):**
+- 손절: ATR × 2.5
+- 익절: ATR × (2-4) (성숙도에 따라)
+- 진입 신중, 포지션 크기 감소
+
+**지지/저항 레벨 우선 적용:**
+1. 피보나치 레벨, 피벗 포인트, 스윙 고점/저점으로 주요 지지/저항 파악
+2. 익절 목표가 저항선(롱)/지지선(숏) ±1% 이내 관통 시:
+   → 목표를 저항선 직전(-0.5%)으로 조정
+3. 손절이 지지선(롱)/저항선(숏) ±1% 이내 관통 시:
+   → 손절을 지지선 아래/저항선 위(-0.5%)로 조정
+4. 조정 후 최소 손익비 1:1.5 이상 유지 필수
+
+#### 4단계: 포지션 크기 및 레버리지
+
+**포지션 크기:**
+- 다중 시간대 일관성 높음(3개) + ADX > 40: 0.7-0.9
+- 일관성 보통(2개) + ADX 30-40: 0.5-0.7
+- 일관성 낮음(1개) 또는 ADX < 30: 0.3-0.5
+
+**레버리지:**
+- 변동성 낮을수록 레버리지 높임: ATR% < 2% → 30-40배
+- 변동성 보통: ATR% 2-3.5% → 25-35배
+- 변동성 높을수록 레버리지 낮춤: ATR% > 3.5% → 20-30배
+- 추세 성숙도가 높을수록 레버리지 낮춤
+
+**예상 유지 시간 (EXPECTED_MINUTES):**
+- 신생 추세 + 강한 ADX: 480-900분
+- 성숙 추세 + 보통 ADX: 240-480분
+- 과성숙 추세: 240-360분 (조기 전환 대비)
+
+---
+
+### ⚖️ 보조 지표 활용법
+
+**RSI, MACD, 스토캐스틱:**
+- 이들은 진입 차단 사유가 아님
+- RSI 과매수/과매도는 추세 전환 신호가 아니라 추세 강도 지표
+- 단, 극단적 과매수/과매도(RSI > 85 또는 < 15) 시 익절 목표를 보수적으로 조정
+
+**다이버전스:**
+- 정규 다이버전스: 추세 전환 가능성 증가 → 익절 가깝게 조정
+- 히든 다이버전스: 추세 지속 신호 → 익절 멀리 가능
+
+**볼륨:**
+- 평균의 30% 미만: 유동성 부족, 진입 보류
+- 평균의 150% 이상: 강한 추세 확인, 적극 진입
+
+---
+
+### 📝 응답 형식 (반드시 준수)
 
 ## TRADING_DECISION
 ACTION: [ENTER_LONG/ENTER_SHORT/HOLD]
 POSITION_SIZE: [0.3-0.9] (HOLD 시 생략)
-LEVERAGE: [20-40 정수] (HOLD 시 생략)
+LEVERAGE: [20-40] (HOLD 시 생략)
 STOP_LOSS_ROE: [소수점 2자리] (HOLD 시 생략)
 TAKE_PROFIT_ROE: [소수점 2자리] (HOLD 시 생략)
 EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
 
 ## ANALYSIS_DETAILS
 
-**Step 1: 시장 추세 강도 분류**
-- 15분 ADX: [값]
-- 1시간 ADX: [값]
-- 4시간 ADX: [값]
-- 최대 ADX: [값]
-- 판단: [강한 추세장/약한 추세장/횡보장]
+**1. 추세 강도 평가:**
+- 15분 ADX: [값] → [강함/보통/약함]
+- 1시간 ADX: [값] → [강함/보통/약함]
+- 4시간 ADX: [값] → [강함/보통/약함]
+- 종합: [추세 존재 확인/추세 약함]
 
-**Step 2: 다중 시간대 추세 일치도 및 진입 방향**
-- 15분: [상승/하락/횡보] (EMA 배열 상태)
-- 1시간: [상승/하락/횡보] (EMA 배열 상태)
-- 4시간: [상승/하락/횡보] (EMA 배열 상태)
-- 일치도: [3개/2개/1개/0개] 시간대 일치
-- 우세한 추세: [상승/하락/혼재]
-- 진입 방향: [ENTER_LONG/ENTER_SHORT/HOLD]
-- 판단: [매우 강한 신호/일반 신호/약한 신호]
+**2. 추세 방향 및 일관성:**
+- 15분 EMA 배열: [21>55>200 (상승)/21<55<200 (하락)/혼재]
+- 1시간 EMA 배열: [상승/하락/혼재]
+- 4시간 EMA 배열: [상승/하락/혼재]
+- 일치도: [3개/2개/1개] 시간대
+- 우세 방향: [상승 추세/하락 추세/혼재] → 진입 방향: [LONG/SHORT/HOLD]
 
-**Step 3: 변동성 분석 및 동적 손익비**
-- 현재 ATR %: [값]%
-- 볼린저 밴드 폭: [평균 대비 %]
-- 변동성 레짐: [초저/저/정상/고/초고변동성]
-- 적용된 손절 배수: ATR × [배수]
-- 적용된 익절 배수: ATR × [배수]
-- 손절 거리: [값]%
-- 익절 거리: [값]%
+**3. 추세 성숙도 분석:**
+- 추세 형성 시점: [N시간 전]
+- 성숙도: [신생/성숙/과성숙]
+- 이동평균선 간격: [넓음/보통/좁음]
+- 최근 크로스 이벤트: [있음/없음]
+
+**4. 변동성 및 손익 목표:**
+- ATR %: [값]% → 변동성: [초저/저/정상/고/초고]
+- 손절 계산: ATR × [배수] = [값]%
+- 익절 계산 (성숙도 반영): ATR × [배수] = [값]%
 - 계산된 손익비: 1:[비율]
-- 지지/저항 조정: [있음/없음] - [조정 내용]
-- 최소 손익비 충족: [예/아니오]
-- 판단: [진입/HOLD]
 
-**보조 지표 참고사항:**
-- RSI 상태: [값] ([과매수/중립/과매도])
-- MACD: [긍정적/부정적]
-- 볼륨: 평균 대비 [값]%
-- 다이버전스: [있음/없음]
-- 주요 지지선: [가격] (현재가 대비 [±%])
-- 주요 저항선: [가격] (현재가 대비 [±%])
-→ 보조 지표가 부정적이어도 3단계 프로세스 통과하면 진입
-→ 지지/저항선은 손익 목표 조정에 반드시 활용
+**5. 지지/저항 조정:**
+- 주요 저항선: [가격] (현재가 대비 +[%])
+- 주요 지지선: [가격] (현재가 대비 -[%])
+- 익절 목표 조정: [필요/불필요] → 조정 후: [값]%
+- 손절 목표 조정: [필요/불필요] → 조정 후: [값]%
+- 최종 손익비: 1:[비율] ([충족/미충족])
 
-**최종 결론:**
-[Step 1-3 결과를 종합하여 최종 거래 결정 및 근거]
-**중요**: 상승 추세면 ENTER_LONG, 하락 추세면 ENTER_SHORT를 동등하게 평가
-         숏 진입을 주저하거나 차별하지 말 것
+**6. 보조 지표 참고:**
+- RSI: [값] → [극단적 과매수/과매수/중립/과매도/극단적 과매도]
+- MACD: [골든크로스/데드크로스/중립]
+- 다이버전스: [정규 다이버전스/히든 다이버전스/없음]
+- 볼륨: 평균 대비 [값]% → [매우 높음/높음/정상/낮음]
+
+**7. 최종 결론:**
+[모든 요소를 종합하여 최종 거래 결정]
+- 추세 방향 추종: [상승 추세면 LONG/하락 추세면 SHORT/혼재면 HOLD]
+- 포지션 크기 근거: [신뢰도와 ADX 기반]
+- 레버리지 근거: [변동성 기반]
+- 손익 목표 근거: [변동성 + 성숙도 + 지지/저항]
+- 예상 유지 시간 근거: [추세 성숙도와 ADX 기반]
 """,
                     "cache_control": {"type": "ephemeral"}
                 }
@@ -498,12 +655,42 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
             if timeframe in all_timeframes
         }
 
+        # 시장 맥락 정보 추출
+        market_context = market_data.get('market_context', {})
+        recent_price_action = market_context.get('recent_price_action', '정보 없음')
+        support_resistance_events = market_context.get('support_resistance_events', [])
+        volume_context = market_context.get('volume_context', '정보 없음')
+        multi_timeframe = market_context.get('multi_timeframe_consistency', {})
+        
+        # 지지/저항 이벤트 문자열 생성
+        sr_events_str = '\n  - '.join(support_resistance_events) if support_resistance_events else '특이사항 없음'
+        
+        # 다중 시간대 일관성 정보
+        mtf_score = multi_timeframe.get('score', 0)
+        mtf_trend = multi_timeframe.get('dominant_trend', '혼재')
+        mtf_details = multi_timeframe.get('details', '정보 없음')
+
         prompt = f"""### 현재 시장 상태:
 - 현재가: {market_data['current_market']['price']} USDT
 - 24시간 고가: {market_data['current_market']['24h_high']} USDT
 - 24시간 저가: {market_data['current_market']['24h_low']} USDT
 - 24시간 거래량: {market_data['current_market']['24h_volume']} BTC
 - 24시간 변동성: {round(((market_data['current_market']['24h_high'] - market_data['current_market']['24h_low']) / market_data['current_market']['24h_low']) * 100, 2)}%
+
+### 시장 맥락 정보 (Context):
+**최근 가격 움직임:**
+{recent_price_action}
+
+**주요 지지/저항선 이벤트:**
+  - {sr_events_str}
+
+**거래량 상황:**
+{volume_context}
+
+**다중 시간대 추세 일관성:**
+- 일관성 점수: {mtf_score}/100
+- 우세한 추세: {mtf_trend}
+- 상세: {mtf_details}
 
 ### 시스템 동작원리:
 - 한번 포지션 진입하면 부분 청산, 추가 진입 불가능
@@ -816,14 +1003,14 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                 "reason": f"파싱 에러: {str(e)}"
             }
 
-    async def monitor_position(self, market_data, position_info):
+    async def monitor_position(self, market_data, position_info, entry_analysis_reason=""):
         """포지션 모니터링 및 분석"""
         try:
             print("\n=== Claude 포지션 모니터링 분석 시작 ===")
             start_time = time.time()
             
-            # 1. 모니터링용 프롬프트 생성
-            message_content = self._create_monitoring_prompt(market_data, position_info)
+            # 1. 모니터링용 프롬프트 생성 (진입 근거 전달)
+            message_content = self._create_monitoring_prompt(market_data, position_info, entry_analysis_reason)
 
             # Claude API 호출
             headers = {

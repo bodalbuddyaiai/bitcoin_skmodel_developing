@@ -58,11 +58,13 @@ class AIService:
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}")
     
-    async def monitor_position(self, market_data, position_info):
+    async def monitor_position(self, market_data, position_info, entry_analysis_reason=""):
         """선택된 AI 모델로 포지션 모니터링"""
         if self.current_model == "gpt":
+            # OpenAI는 entry_analysis_reason을 사용하지 않음 (기존 방식 유지)
             return await self.openai_service.monitor_position(market_data, position_info)
         elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1", "claude-sonnet-4.5"]:
-            return await self.claude_service.monitor_position(market_data, position_info)
+            # Claude는 entry_analysis_reason을 전달
+            return await self.claude_service.monitor_position(market_data, position_info, entry_analysis_reason)
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}") 
