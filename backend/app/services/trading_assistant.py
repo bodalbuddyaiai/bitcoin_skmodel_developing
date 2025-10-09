@@ -129,7 +129,10 @@ class TradingAssistant:
         self.is_monitoring = False
         self.monitoring_start_time = None
         self.monitoring_end_time = None
-        self.monitoring_interval = 90  # 90분마다 모니터링
+        
+        # 설정 값 초기화 (데이터베이스에서 로드)
+        self._load_settings()
+        self.monitoring_interval = self.settings.get('monitoring_interval_minutes', 90)  # 기본값 90분
         
         # 포지션 관련 변수 초기화
         self._position_entry_time = None
@@ -170,6 +173,43 @@ class TradingAssistant:
     def get_current_ai_model(self):
         """현재 AI 모델 반환"""
         return self.ai_service.get_current_model()
+    
+    def _load_settings(self):
+        """데이터베이스에서 설정 값 로드"""
+        try:
+            from app.models.trading_settings import TradingSettings
+            db = next(get_db())
+            
+            settings = db.query(TradingSettings).all()
+            self.settings = {}
+            
+            for setting in settings:
+                self.settings[setting.setting_name] = setting.setting_value
+            
+            print(f"설정 로드 완료: {self.settings}")
+            db.close()
+        except Exception as e:
+            print(f"설정 로드 실패: {e}")
+            # 기본값 설정
+            self.settings = {
+                'stop_loss_reanalysis_minutes': 5,
+                'normal_reanalysis_minutes': 60,
+                'monitoring_interval_minutes': 90
+            }
+    
+    def update_settings(self, setting_name: str, setting_value: int):
+        """설정 업데이트"""
+        try:
+            self.settings[setting_name] = setting_value
+            
+            # 모니터링 주기가 변경된 경우 반영
+            if setting_name == 'monitoring_interval_minutes':
+                self.monitoring_interval = setting_value
+                print(f"모니터링 주기 업데이트: {setting_value}분")
+            
+            print(f"설정 업데이트 완료: {setting_name} = {setting_value}")
+        except Exception as e:
+            print(f"설정 업데이트 실패: {e}")
 
     def _start_position_monitor_thread(self):
         """포지션 모니터링 스레드 시작"""
@@ -258,8 +298,9 @@ class TradingAssistant:
                 self._cancel_scheduled_analysis()
                 self.cancel_all_jobs()
                 
-                # 120분 후 새로운 분석 예약
-                next_analysis_time = datetime.now() + timedelta(minutes=120)
+                # 설정된 시간 후 새로운 분석 예약
+                reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
                 new_job_id = str(uuid.uuid4())
                 
                 print(f"\n=== 강제 청산 후 새로운 분석 예약 ===")
@@ -420,8 +461,8 @@ class TradingAssistant:
                     print("모든 스케줄링된 작업이 취소되었습니다.")
                     self.cancel_all_jobs()
                     
-                    # 120분 후 새로운 분석 예약
-                    next_analysis_time = datetime.now() + timedelta(minutes=120)
+                    # 60분 후 새로운 분석 예약
+                    next_analysis_time = datetime.now() + timedelta(minutes=60)
                     new_job_id = str(uuid.uuid4())
                     
                     print(f"\n=== 강제 청산 후 새로운 분석 예약 ===")
@@ -2110,9 +2151,9 @@ class TradingAssistant:
                 # HOLD 결과 처리
                 print("\n=== HOLD 포지션 결정됨 ===")
                 if schedule_next:
-                    # HOLD 액션인 경우 항상 120분 후에 재분석
-                    next_time = datetime.now() + timedelta(minutes=120)
-                    print(f"HOLD 상태로 120분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
+                    # HOLD 액션인 경우 항상 60분 후에 재분석
+                    next_time = datetime.now() + timedelta(minutes=60)
+                    print(f"HOLD 상태로 60분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
                     await self._schedule_next_analysis(next_time)
             
             # success 키 추가하여 반환
@@ -2200,8 +2241,8 @@ class TradingAssistant:
             print(f"\n=== 오류 발생으로 인한 다음 분석 예약 ===")
             print(f"오류 내용: {error_message}")
             
-            # 120분 후로 다음 분석 예약
-            next_time = datetime.now() + timedelta(minutes=120)
+            # 60분 후로 다음 분석 예약
+            next_time = datetime.now() + timedelta(minutes=60)
             await self._schedule_next_analysis(next_time)
             
             # 에러 메시지 브로드캐스트
@@ -3323,8 +3364,9 @@ class TradingAssistant:
                 # 기존 예약 작업 취소
                 self.cancel_all_jobs()
                 
-                # 120분 후 새로운 분석 예약
-                next_analysis_time = datetime.now() + timedelta(minutes=120)
+                # 설정된 시간 후 새로운 분석 예약
+                reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
                 new_job_id = str(uuid.uuid4())
                 
                 print(f"\n=== 청산 후 새로운 분석 예약 ===")
@@ -3441,10 +3483,10 @@ class TradingAssistant:
                         
                         # 청산 사유에 따른 재분석 시간 결정
                         if liquidation_reason == "손절가 도달":
-                            next_analysis_minutes = 5  # Stop loss: 5분 후 재분석
+                            next_analysis_minutes = self.settings.get('stop_loss_reanalysis_minutes', 5)  # Stop loss: 설정값 또는 기본 5분
                             print(f"손절가 도달로 인한 청산 - {next_analysis_minutes}분 후 재분석")
                         else:
-                            next_analysis_minutes = 120  # 나머지 모든 경우: 120분 후
+                            next_analysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)  # 나머지 모든 경우: 설정값 또는 기본 60분
                             print(f"{liquidation_reason}로 인한 청산 - {next_analysis_minutes}분 후 재분석")
                         
                         # 새로운 분석 작업 예약
@@ -3591,8 +3633,8 @@ class TradingAssistant:
             }
             await self.websocket_manager.broadcast(error_data)
             
-            # 120분 후 다음 분석 예약
-            next_analysis_time = datetime.now() + timedelta(minutes=120)
+            # 60분 후 다음 분석 예약
+            next_analysis_time = datetime.now() + timedelta(minutes=60)
             job_id = f"ANALYSIS_{int(time.time())}"
             
             # 새로운 분석 작업 예약

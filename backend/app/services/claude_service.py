@@ -402,12 +402,12 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                     "stop_loss_roe": 5.0,
                     "take_profit_roe": 10.0,
                     "reason": "분석 결과가 없어 기본값으로 설정됨",
-                    "next_analysis_time": (datetime.now() + timedelta(minutes=120)).isoformat()
+                    "next_analysis_time": (datetime.now() + timedelta(minutes=60)).isoformat()
                 }
                 
             # HOLD 액션인 경우 next_analysis_time을 120분 후로 설정
             if analysis.get('action') == 'HOLD':
-                analysis['next_analysis_time'] = (datetime.now() + timedelta(minutes=120)).isoformat()
+                analysis['next_analysis_time'] = (datetime.now() + timedelta(minutes=60)).isoformat()
                 # expected_minutes가 설정되어 있지 않거나 240으로 기본 설정된 경우 120으로 변경
                 if 'expected_minutes' not in analysis or analysis.get('expected_minutes') == 240:
                     analysis['expected_minutes'] = 120

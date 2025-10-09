@@ -4,6 +4,7 @@ import MarketDataDisplay from './components/MarketDataDisplay';
 import TradingControls from './components/TradingControls';
 import AIModelSelector from './components/AIModelSelector';
 import AnalysisOnlySection from './components/AnalysisOnlySection';
+import TradingSettings from './components/TradingSettings';
 import { fetchTradingStatus } from './services/api';
 import { connectWebSocket, useWebSocket, WS_EVENT_TYPES } from './services/websocket';
 
@@ -135,6 +136,7 @@ function App() {
       <AIModelSelector />
       <AnalysisOnlySection />
       <TradingControls />
+      <TradingSettings />
     </Container>
   );
 }

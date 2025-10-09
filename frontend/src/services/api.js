@@ -171,4 +171,29 @@ export const analyzeOnly = async () => {
   }
 };
 
+// 설정 조회
+export const getSettings = async () => {
+  try {
+    const response = await api.get('/api/trading/settings');
+    return response.data;
+  } catch (error) {
+    console.error('Error getting settings:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// 설정 업데이트
+export const updateSetting = async (settingName, settingValue) => {
+  try {
+    const response = await api.put('/api/trading/settings', {
+      setting_name: settingName,
+      setting_value: settingValue
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error updating setting:', error);
+    throw error;
+  }
+};
+
  

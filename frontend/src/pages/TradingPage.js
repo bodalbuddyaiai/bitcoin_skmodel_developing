@@ -3,6 +3,7 @@ import { Row, Col, message } from 'antd';
 import TradingControls from '../components/TradingControls';
 import TradingStatus from '../components/TradingStatus';
 import MarketDataDisplay from '../components/MarketDataDisplay';
+import TradingSettings from '../components/TradingSettings';
 import { startTrading, stopTrading } from '../services/api';
 
 const TradingPage = () => {
@@ -65,6 +66,10 @@ const TradingPage = () => {
         
         <Col xs={24} lg={24}>
           <MarketDataDisplay marketData={marketData} />
+        </Col>
+        
+        <Col xs={24} lg={24}>
+          <TradingSettings />
         </Col>
       </Row>
     </div>
