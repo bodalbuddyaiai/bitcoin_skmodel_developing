@@ -23,6 +23,12 @@ OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 # Claude API 설정
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 
+# 이메일 설정
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = os.getenv("SMTP_PORT", "587")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
+
 # 서버 설정
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", 8000)) 

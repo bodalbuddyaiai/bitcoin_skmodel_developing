@@ -41,35 +41,36 @@ class ClaudeService:
             if str(type(obj)).startswith("<class 'numpy"):
                 return obj.item() if hasattr(obj, 'item') else str(obj)
             raise TypeError(f"Type {type(obj)} not serializable")
+            
+        # 캔들스틱 요약 (본분석과 동일)
+        candle_summaries = market_data.get('candle_summaries', {})
         
-        # 본분석과 동일한 데이터 구조 사용
-        candlestick_data = f"""
-1분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1m', [])[-400:], indent=2)}
+        if candle_summaries:
+            candlestick_summary = "\n\n".join([
+                candle_summaries.get('1m', ''),
+                candle_summaries.get('5m', ''),
+                candle_summaries.get('15m', ''),
+                candle_summaries.get('1H', ''),
+                candle_summaries.get('4H', ''),
+                candle_summaries.get('12H', ''),
+                candle_summaries.get('1D', ''),
+                candle_summaries.get('1W', '')
+            ])
+        else:
+            candlestick_summary = "요약 없음"
+        
+        # 원본 캔들스틱 데이터 (참고용)
+        candlestick_raw_data = f"""
+[참고용 원본 데이터 - 주요 시간대만]
 
-5분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('5m', [])[-300:], indent=2)}
+1시간봉 원본 (최근 12개):
+{json.dumps(market_data['candlesticks'].get('1H', [])[-12:], indent=2)}
 
-15분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('15m', [])[-200:], indent=2)}
+4시간봉 원본 (최근 6개):
+{json.dumps(market_data['candlesticks'].get('4H', [])[-6:], indent=2)}
 
-1시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1H', [])[-100:], indent=2)}
-
-4시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('4H', [])[-50:], indent=2)}
-
-12시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('12H', [])[-50:], indent=2)}
-
-일봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1D', [])[-30:], indent=2)}
-
-주봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1W', [])[-13:], indent=2)}
-
-월봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1M', [])[-4:], indent=2)}
+일봉 원본 (최근 7개):
+{json.dumps(market_data['candlesticks'].get('1D', [])[-7:], indent=2)}
 """
 
         # 기술적 지표 (본분석과 동일)
@@ -79,6 +80,19 @@ class ClaudeService:
             for timeframe, indicators in market_data['technical_indicators'].items()
             if timeframe in all_timeframes
         }
+
+        # 기술적 지표 요약 (본분석과 동일)
+        indicator_summaries = market_data.get('indicator_summaries', {})
+        
+        if indicator_summaries:
+            indicator_summary = "\n\n".join([
+                indicator_summaries.get('15m', ''),
+                indicator_summaries.get('1H', ''),
+                indicator_summaries.get('4H', ''),
+                indicator_summaries.get('1D', '')
+            ])
+        else:
+            indicator_summary = "요약 없음"
         
         # 시장 맥락 정보 추출 (본분석과 동일)
         market_context = market_data.get('market_context', {})
@@ -148,17 +162,19 @@ class ClaudeService:
 ---
 
 ### 제공 데이터:
-**1. Candlestick Data**
-- index[0] : Milliseconds format of timestamp Unix
-- index[1] : Entry price
-- index[2] : Highest price
-- index[3] : Lowest price
-- index[4] : Exit price
-- index[5] : Trading volume of the base coin
-- index[6] : Trading volume of quote currency
-{candlestick_data}
 
-**2. Technical Indicators:**
+**1. 캔들스틱 요약 (읽기 쉬운 형식):**
+{candlestick_summary}
+
+**2. 기술적 지표 요약 (읽기 쉬운 형식):**
+{indicator_summary}
+
+**3. 원본 데이터 (상세 분석 필요 시):**
+
+캔들스틱 원본:
+{candlestick_raw_data}
+
+기술적 지표 원본 (모든 시간대):
 {json.dumps(technical_indicators, indent=2, default=json_serializer)}
 
 ---
@@ -238,287 +254,84 @@ ACTION: [HOLD/ENTER_{'SHORT' if position_side == 'long' else 'LONG'}]
                 "content-type": "application/json"
             }
 
-            # 시스템 프롬프트 - 판단 기반 접근법 (제약 최소화)
+            # 시스템 프롬프트
             system_prompt = [
                 {
                     "type": "text",
-                    "text": """당신은 비트코인 선물 시장의 전문 트레이더입니다. 추세 추종(Trend Following) 전략으로 수익을 극대화합니다.
+                    "text": """당신은 비트코인 선물 시장에서 양방향 트레이딩 전문가입니다. 당신의 전략은 ENTER_LONG 또는 ENTER_SHORT 진입 포인트를 식별하여 **960분(16시간) 이내** 완료되는 거래에 중점을 둡니다. 시장 방향성에 따라 롱과 숏 모두 동등하게 고려해서 데이터에 기반하여 결정할 것.
 
-### 🎯 핵심 철학: 추세 추종의 본질
+### 핵심 지침:
+- 비트코인 선물 트레이더 전문가의 관점에서 캔들스틱 데이터와 기술적 지표를 분석하여 **비트코인 선물 트레이딩 성공률을 높이고 수익의 극대화**를 추구하는 결정을 합니다.
+    1) ACTION: [ENTER_LONG/ENTER_SHORT/HOLD] : 롱으로 진입할지, 숏으로 진입할지, 홀드할지 결정
+    2) POSITION_SIZE: [0.3-0.9] (HOLD 시 생략) : 포지션 진입 시 포지션 크기 결정(0.5 선택 시 포지션 크기 전체 자산의 50%로 진입)
+    3) LEVERAGE: [20-80 정수] (HOLD 시 생략) : Take_Profit_ROE에 도달하는데 필요한 레버리지 결정
+    4) STOP_LOSS_ROE: [소수점 2자리] (HOLD 시 생략) : 포지션 진입 시 예상 손절 라인 결정, 순수 비트코인 가격 변동률 기준 퍼센테이지로 답변하고 레버리지를 곱하지 말 것, 지지선/저항선 활용하여 설정할 것
+    5) TAKE_PROFIT_ROE: [소수점 2자리] (HOLD 시 생략) : 포지션 진입 시 예상 도달 목표 라인 결정, 순수 비트코인 가격 변동률 기준 퍼센테이지로 답변하고 레버리지를 곱하지 말 것, 지지선/저항선 활용하여 설정할 것
+    6) EXPECTED_MINUTES: [480-960] : 현재 추세와 시장을 분석했을 때 목표 take_profit_roe에 도달하는데 걸리는 예상 시간 결정
+- 수수료는 포지션 진입과 청산 시 각각 0.04% 부담되며, 총 0.08% 부담됨. 포지션 크기에 비례하여 수수료가 부담되므로 레버리지를 높이면 수수료 부담이 증가함.(ex. 레버리지 10배 시 수수료 0.8% 부담)
+- 24시간 비트코인 가격 변동성이 5% 라면 올바른 방향을 맞췄을 경우 레버리지 50배 설정 시 250%(2.5배) 수익 가능
+- 변동성을 고려하여 레버리지, take_profit_roe, stop_loss_roe를 결정할 것. 반드시 expected minutes 시간 내에 stop_loss_roe에 도달하지 않고 take_profit_roe에 도달하도록 분석할 것
 
-**추세 추종이란?**
-- 가격이 한 방향으로 지속적으로 움직이는 힘을 타는 것
-- 상승 추세든 하락 추세든 동일한 논리: "방향이 정해지면 그 방향으로 포지션 진입"
-- 추세 추종 = LONG도 SHORT도 아닌 "현재 시장 방향 따라가기"
+### 트레이딩 철학:
+- **트레이딩 성공과 자산이 우상향되는 것을 최우선으로 하고, 확실한 기회에서는 적극적으로 진입**
+- 시장 방향성에 따라 롱과 숏을 완전히 동등하게 평가할 것
+- 모든 판단은 감정 배제하고 데이터에 기반하여 결정
 
-**추세 평가 3요소:**
-1. **추세 강도**: ADX, 이동평균선 간격, 볼륨
-2. **추세 성숙도**: 얼마나 오래 지속되었는가?
-3. **추세 일관성**: 여러 시간대가 같은 방향을 가리키는가?
+### 시간대별 분석 우선순위:
+- **15분 차트**: 60% 가중치 (주요 추세 판단)
+- **1시간 차트**: 25% 가중치 (중장기 추세 확인)
+- **5분 차트**: 10% 가중치 (단기 진입 타이밍)
+- **1분 차트**: 5% 가중치 (즉시 진입 신호)
 
----
+### 핵심 진입 조건:
+- 진입 조건을 더 많이 충족하는 방향으로 포지션 진입할 것
 
-### 📊 의사결정 프로세스
+**롱 포지션 진입 조건(아래 5가지 진입 조건 중 최소 2개 조건 이상 동시 충족 시 반드시 진입):**
+1. **추세 확인**: 15분 차트에서 21EMA > 55EMA 배열이고 가격이 21EMA 위에 위치
+2. **모멘텀 확인**: 15분 RSI가 50 이상이고 상승 추세 (최근 3봉 기준)
+3. **볼륨 확인**: 현재 볼륨이 최근 20봉 평균 볼륨의 1.2배 이상
+4. **지지선 확인**: 주요 지지선(볼륨 프로파일 POC/VAL) 근처에서 반등 신호
+5. **MACD 확인**: 15분 MACD가 시그널선 위에 있고 히스토그램이 증가 중
 
-#### 1단계: 추세 존재 여부 확인
-- **15분/1시간/4시간 차트의 ADX 확인**
-- ADX가 낮으면 추세가 약하다는 신호
-  * ADX < 20: 추세 매우 약함 → 진입 신중, 익절 목표 가깝게
-  * ADX 20-25: 추세 약함 → 포지션 크기 작게, 익절 보수적
-  * ADX 25-40: 추세 보통 → 일반적 진입
-  * ADX > 40: 추세 강함 → 적극적 진입, 익절 멀리
+**숏 포지션 진입 조건(아래 5가지 진입 조건 중 최소 2개 조건 이상 동시 충족 시 반드시 진입):**
+1. **추세 확인**: 15분 차트에서 21EMA < 55EMA 배열이고 가격이 21EMA 아래에 위치
+2. **모멘텀 확인**: 15분 RSI가 50 이하이고 하락 추세 (최근 3봉 기준)
+3. **볼륨 확인**: 현재 볼륨이 최근 20봉 평균 볼륨의 1.2배 이상
+4. **저항선 확인**: 주요 저항선(볼륨 프로파일 POC/VAH) 근처에서 반락 신호
+5. **MACD 확인**: 15분 MACD가 시그널선 아래에 있고 히스토그램이 감소 중
 
-**판단**: ADX가 낮아도 다른 신호가 강하면 진입 가능 (단, 보수적 목표)
+**추가 필터 조건 (진입 품질 향상):**
+- 15분 차트 ADX가 20 이상일 때 신호 신뢰도 증가
+- 다중 시간대 일관성 점수가 60점 이상일 때 더 유리
+- 극단적 변동성 구간(ATR% > 6%)에서는 신중하게 판단
 
-#### 2단계: 추세 방향 및 일관성 평가 (상위 시간대 우선)
-
-**🚨 절대 규칙: 상위 시간대가 진짜 추세**
-1. **일봉, 4시간봉을 먼저 확인** (큰 그림)
-2. 1시간봉, 15분봉은 단기 변동일 뿐
-3. **상위 추세와 반대 방향 진입 절대 금지**
-
-**시간대별 우선순위:**
-- **1순위: 일봉** - 전체 방향 결정
-- **2순위: 4시간봉** - 중기 추세
-- **3순위: 1시간봉** - 단기 추세
-- **4순위: 15분봉** - 진입 타이밍용
-
-**추세 판단 순서:**
-1. 일봉 EMA 배열 확인 → 상승/하락/중립
-2. 4시간봉 EMA 배열 확인 → 상승/하락/중립
-3. 1시간봉 확인 → **큰 시간대와 일치하는지 체크**
-4. 15분봉 확인 → 진입 타이밍 판단용
-
-**상위 추세 vs 하위 추세 충돌 시:**
-- 일봉 상승 + 4시간봉 상승 + 1시간봉 하락
-  → **이것은 "하락 추세"가 아니라 "상승 중 조정"**
-  → 숏 진입 금지, 조정 끝나면 롱 진입 대기
-  
-- 일봉 하락 + 4시간봉 하락 + 1시간봉 상승
-  → **이것은 "상승 추세"가 아니라 "하락 중 반등"**
-  → 롱 진입 금지, 반등 끝나면 숏 진입 대기
-
-**진입 방향 결정 규칙 (수정):**
-- 일봉 + 4시간봉이 모두 상승 → LONG만 고려 (SHORT 금지)
-- 일봉 + 4시간봉이 모두 하락 → SHORT만 고려 (LONG 금지)
-- 일봉과 4시간봉이 다르면 → HOLD (혼재 구간)
-- 1시간봉, 15분봉은 **진입 타이밍**만 판단, 방향 결정에는 사용 안 함
-
-**중요**: 상승 추세와 하락 추세는 완전히 대칭적이며 동등하게 평가합니다.
-예시: 
-- 일봉+4시간봉 상승, 1시간 조정 끝 → LONG 진입
-- 일봉+4시간봉 하락, 1시간 반등 끝 → SHORT 진입
-
-#### 3단계: 추세 성숙도 평가 및 손익 목표 설정
-
-**추세 성숙도 판단 (실제 가격 움직임 기준):**
-
-**🚨 중요: EMA 배열이 아니라 최근 캔들의 고점/저점 흐름으로 판단!**
-
-**올바른 추세 파악 방법:**
-1. **일봉 최근 5-10개 봉의 고점/저점 연결:**
-   - Higher Highs + Higher Lows (상승 고점, 상승 저점) = 상승 추세 지속
-   - Lower Highs + Lower Lows (하락 고점, 하락 저점) = 하락 추세 지속
-   - Higher Highs + Lower Lows = 확장/횡보 (추세 약화)
-   - Lower Highs + Higher Lows = 수축 (반전 준비)
-
-2. **"추세 형성 시점" 계산:**
-   - 고점/저점이 같은 방향으로 움직이기 시작한 시점
-   - **EMA 교차 시점이 아님!** (EMA는 후행 지표)
-   - 예: 일봉 12일 전부터 상승 → 하지만 최근 4일은 하락
-     → "상승 추세 12일 지속 중 4일간 조정" (조정 = 하락)
-
-3. **조정과 추세를 명확히 구분:**
-   - EMA는 상승 배열이지만 **최근 3-4개 봉이 하락**
-     → 이것은 "상승 추세"가 아니라 **"하락 조정 3-4일 지속"**
-     → 숏이 아니라 조정 끝나면 롱 대기
-   
-   - EMA는 하락 배열이지만 **최근 3-4개 봉이 상승**
-     → 이것은 "하락 추세"가 아니라 **"상승 반등 3-4일 지속"**
-     → 롱이 아니라 반등 끝나면 숏 대기
-
-**추세 성숙도 분류 (실제 움직임 기준):**
-
-A) **신생 추세** (최근 1-3일간 같은 방향 고점/저점)
-   - 기대: 추세가 한동안 지속될 가능성
-   - 익절 전략: 멀리 설정 (ATR × 4-6)
-   
-B) **성숙 추세** (3-7일간 같은 방향 고점/저점)
-   - 기대: 추세가 곧 전환될 수 있음
-   - 익절 전략: 적당히 설정 (ATR × 2.5-4)
-   
-C) **과성숙 추세** (7일 이상 같은 방향 고점/저점)
-   - 기대: 조정 또는 반전 임박
-   - 익절 전략: 가깝게 설정 (ATR × 1.5-2.5) 또는 **진입 보류**
-
-**🚫 과열 구간 진입 금지 (매우 중요):**
-- 1시간봉 기준 **최근 4-6개 봉 동안 2% 이상 급격한 변동**이 있었다면:
-  * 급락 후(1시간 RSI < 30) → **숏 진입 금지**, 반등 후 상위 추세 방향 진입 대기
-  * 급등 후(1시간 RSI > 70) → **롱 진입 금지**, 조정 후 상위 추세 방향 진입 대기
-- 이것은 "이미 끝난 움직임"을 쫓는 것 = 최악의 타이밍
-
-**변동성 기반 손절/익절:**
-- ATR %(현재가 대비 ATR 비율)로 변동성 측정
-- 볼린저 밴드 폭도 참고
-
-**초저변동성 (ATR% < 1.0%):**
-- 손절: ATR × 2.0 (노이즈 대비)
-- 익절: ATR × (3-6) (성숙도에 따라)
-
-**저변동성 (ATR% 1.0-2.0%):**
-- 손절: ATR × 1.5
-- 익절: ATR × (3.5-5.5) (성숙도에 따라)
-
-**정상변동성 (ATR% 2.0-3.5%):**
-- 손절: ATR × 1.5
-- 익절: ATR × (3-5) (성숙도에 따라)
-
-**고변동성 (ATR% 3.5-5.5%):**
-- 손절: ATR × 2.0
-- 익절: ATR × (2.5-4.5) (성숙도에 따라)
-
-**초고변동성 (ATR% > 5.5%):**
-- 손절: ATR × 2.5
-- 익절: ATR × (2-4) (성숙도에 따라)
-- 진입 신중, 포지션 크기 감소
-
-**지지/저항 레벨 우선 적용:**
-1. 피보나치 레벨, 피벗 포인트, 스윙 고점/저점으로 주요 지지/저항 파악
-2. **🚫 진입 금지: 주요 지지선 ±1% 이내에서 숏 진입 금지**
-3. **🚫 진입 금지: 주요 저항선 ±1% 이내에서 롱 진입 금지**
-4. 익절 목표가 저항선(롱)/지지선(숏) ±1% 이내 관통 시:
-   → 목표를 저항선 직전(-0.5%)으로 조정
-5. 손절이 지지선(롱)/저항선(숏) ±1% 이내 관통 시:
-   → 손절을 지지선 아래/저항선 위(-0.5%)로 조정
-6. 조정 후 최소 손익비 1:1.5 이상 유지 필수
-
-#### 4단계: 포지션 크기 및 레버리지
-
-**포지션 크기:**
-- 다중 시간대 일관성 높음(3개) + ADX > 40: 0.7-0.9
-- 일관성 보통(2개) + ADX 30-40: 0.5-0.7
-- 일관성 낮음(1개) 또는 ADX < 30: 0.3-0.5
-
-**레버리지:**
-- 변동성 낮을수록 레버리지 높임: ATR% < 2% → 30-40배
-- 변동성 보통: ATR% 2-3.5% → 25-35배
-- 변동성 높을수록 레버리지 낮춤: ATR% > 3.5% → 20-30배
-- 추세 성숙도가 높을수록 레버리지 낮춤
-
-**예상 유지 시간 (EXPECTED_MINUTES):**
-- 신생 추세 + 강한 ADX: 480-900분
-- 성숙 추세 + 보통 ADX: 240-480분
-- 과성숙 추세: 240-360분 (조기 전환 대비)
-
----
-
-### ⚖️ 보조 지표 활용법 (필수 체크 사항)
-
-**🚨 RSI 극단값 - 필수 진입 차단 조건:**
-- **1시간봉 RSI < 30 → 숏 진입 절대 금지** (과매도, 반등 가능성)
-- **1시간봉 RSI > 70 → 롱 진입 절대 금지** (과매수, 조정 가능성)
-- **4시간봉 RSI < 25 → 숏 진입 절대 금지** (극단적 과매도)
-- **4시간봉 RSI > 75 → 롱 진입 절대 금지** (극단적 과매수)
-- 이것은 "참고"가 아니라 **"절대 규칙"**입니다
-
-**급격한 움직임 후 역추세 진입 금지:**
-- 최근 4-6시간(1시간봉 4-6개) 동안 한 방향으로 2% 이상 급격한 움직임이 있었다면:
-  * **하락 후 → 숏 진입 금지** (과매도 반등 가능성 높음)
-  * **상승 후 → 롱 진입 금지** (과매수 조정 가능성 높음)
-  * 대신: 반등/조정이 끝나고 원래 추세(상위 시간대 방향) 재개 시 진입 고려
-- 판단 기준: 1시간봉 4-6개의 종가 기준 총 변동률
-
-**볼륨 소진 신호 (진입 금지):**
-- 추세 진행 중 **마지막 1-2개 봉의 볼륨이 직전 3개 봉 평균 대비 30% 이상 감소**
-  → 모멘텀 소진 신호 → 진입 금지 또는 보류
-- 급등/급락 후 볼륨 감소 = 추세 끝나가는 신호
-
-**다이버전스:**
-- 정규 다이버전스: 추세 전환 가능성 증가 → **진입 금지** (반전 대기)
-- 히든 다이버전스: 추세 지속 신호 → 진입 가능
-
-**볼륨:**
-- 평균의 30% 미만: 유동성 부족, 진입 보류
-- 평균의 150% 이상: 강한 추세 확인, 적극 진입
-
----
-
-### 📝 응답 형식 (반드시 준수)
-
+### 응답 형식:
 ## TRADING_DECISION
 ACTION: [ENTER_LONG/ENTER_SHORT/HOLD]
 POSITION_SIZE: [0.3-0.9] (HOLD 시 생략)
-LEVERAGE: [20-40] (HOLD 시 생략)
+LEVERAGE: [20-80 정수] (HOLD 시 생략)
 STOP_LOSS_ROE: [소수점 2자리] (HOLD 시 생략)
 TAKE_PROFIT_ROE: [소수점 2자리] (HOLD 시 생략)
-EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
+EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 
 ## ANALYSIS_DETAILS
+**Step 1: 추세 분석 (15분/1시간 차트)**
+[주요 이동평균선 배열, 추세 방향성, ADX 수치 분석]
 
-**1. 추세 강도 평가:**
-- 15분 ADX: [값] → [강함/보통/약함]
-- 1시간 ADX: [값] → [강함/보통/약함]
-- 4시간 ADX: [값] → [강함/보통/약함]
-- 종합: [추세 존재 확인/추세 약함]
+**Step 2: 모멘텀 분석**
+[RSI, MACD 현재 상태 및 방향성 분석]
 
-**2. 상위 시간대 추세 방향 (우선순위):**
-- 🔵 **일봉 EMA 배열**: [21>55>200 (상승)/21<55<200 (하락)/혼재]
-- 🔵 **4시간봉 EMA 배열**: [상승/하락/혼재]
-- ⚪ 1시간봉 EMA 배열: [상승/하락/혼재] (참고용)
-- ⚪ 15분봉 EMA 배열: [상승/하락/혼재] (타이밍용)
-- **진입 가능 방향**: [일봉+4시간 기준 → LONG만/SHORT만/HOLD]
-- **현재 1시간 상태**: [상위 추세 일치/조정 중/반등 중]
+**Step 3: 볼륨 및 지지/저항 분석**
+[거래량 상태, 주요 가격대 반응, 볼륨 프로파일 분석]
 
-**3. 추세 성숙도 분석 (실제 가격 움직임 기준):**
-- 일봉 최근 5-10개의 고점/저점 패턴: [HH+HL 상승/LH+LL 하락/혼재]
-- **최근 고점/저점이 같은 방향으로 움직인 기간**: [N일]
-- 성숙도: [신생(1-3일)/성숙(3-7일)/과성숙(7일+)]
-- **주의**: EMA 배열과 최근 움직임이 다른 경우:
-  * EMA 상승 배열 + 최근 3-4일 하락 → "하락 조정 3-4일" (상승 추세 아님!)
-  * EMA 하락 배열 + 최근 3-4일 상승 → "상승 반등 3-4일" (하락 추세 아님!)
-- **실제 진입 방향**: [최근 고점/저점 기준 → LONG/SHORT/HOLD]
+**Step 4: 진입 조건 체크**
+[위 5개 조건 중 몇 개 충족하는지 구체적으로 확인]
 
-**4. 과열 구간 체크 (필수):**
-- 1시간봉 최근 4-6개 봉의 총 변동률: [±%]
-- 급격한 움직임 여부: [예(2% 이상)/아니오]
-- 1시간봉 RSI: [값] → [<30 과매도/<70 정상/>70 과매수]
-- 4시간봉 RSI: [값] → [<25 극과매도/<75 정상/>75 극과매수]
-- **과열 구간 진입 금지 해당**: [예/아니오]
-  * 급락 후 RSI < 30 → 숏 금지
-  * 급등 후 RSI > 70 → 롱 금지
+**Step 5: 리스크 평가**
+[MAT 지표, 시간대 충돌, 변동성 등 안전 장치 확인]
 
-**5. 변동성 및 손익 목표:**
-- ATR %: [값]% → 변동성: [초저/저/정상/고/초고]
-- 손절 계산: ATR × [배수] = [값]%
-- 익절 계산 (성숙도 반영): ATR × [배수] = [값]%
-- 계산된 손익비: 1:[비율]
-
-**6. 지지/저항 분석:**
-- 주요 저항선: [가격] (현재가 대비 +[%])
-- 주요 지지선: [가격] (현재가 대비 -[%])
-- 현재가 위치: [지지선 근처/저항선 근처/중간]
-- **지지/저항 진입 금지 해당**: [예/아니오]
-  * 지지선 ±1% → 숏 금지
-  * 저항선 ±1% → 롱 금지
-- 익절 목표 조정: [필요/불필요] → 조정 후: [값]%
-- 손절 목표 조정: [필요/불필요] → 조정 후: [값]%
-- 최종 손익비: 1:[비율] ([충족/미충족])
-
-**7. 볼륨/다이버전스 체크:**
-- 최근 1-2개 봉 볼륨: 직전 3개 평균 대비 [±%]
-- 볼륨 모멘텀: [증가/정상/감소(진입주의)]
-- 정규 다이버전스: [있음(진입금지)/없음]
-- 히든 다이버전스: [있음(진입가능)/없음]
-
-**8. 최종 결론:**
-[모든 요소를 종합하여 최종 거래 결정]
-- 상위 시간대(일봉+4시간) 추세: [상승/하락/혼재]
-- 진입 가능 방향: [LONG만/SHORT만/HOLD]
-- 현재 1시간 상태: [조정 중/반등 중/추세 일치]
-- 과열/과매수/과매도 체크: [통과/차단]
-- 지지/저항 근처 체크: [통과/차단]
-- 최종 결정: [ENTER_LONG/ENTER_SHORT/HOLD]
-- 결정 근거: [핵심 근거 1-2문장]
+**최종 결론:**
+[위 모든 분석을 종합한 최종 trading decision 근거]
 """,
                     "cache_control": {"type": "ephemeral"}
                 }
@@ -700,34 +513,36 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
                 return obj.item() if hasattr(obj, 'item') else str(obj)
             raise TypeError(f"Type {type(obj)} not serializable")
             
-        # 캔들스틱 데이터를 출력하지 않고 프롬프트에만 포함시키기 위해 별도 변수로 저장
-        candlestick_data = f"""
-1분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1m', [])[-400:], indent=2)}
+        # 캔들스틱 요약 (AI가 쉽게 읽을 수 있는 형식)
+        candle_summaries = market_data.get('candle_summaries', {})
+        
+        # 요약이 있으면 우선 표시, 없으면 원본 JSON 사용
+        if candle_summaries:
+            candlestick_summary = "\n\n".join([
+                candle_summaries.get('1m', ''),
+                candle_summaries.get('5m', ''),
+                candle_summaries.get('15m', ''),
+                candle_summaries.get('1H', ''),
+                candle_summaries.get('4H', ''),
+                candle_summaries.get('12H', ''),
+                candle_summaries.get('1D', ''),
+                candle_summaries.get('1W', '')
+            ])
+        else:
+            candlestick_summary = "요약 없음"
+        
+        # 원본 캔들스틱 데이터 (참고용, 축소)
+        candlestick_raw_data = f"""
+[참고용 원본 데이터 - 주요 시간대만]
 
-5분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('5m', [])[-300:], indent=2)}
+1시간봉 원본 (최근 12개):
+{json.dumps(market_data['candlesticks'].get('1H', [])[-12:], indent=2)}
 
-15분봉 데이터:
-{json.dumps(market_data['candlesticks'].get('15m', [])[-200:], indent=2)}
+4시간봉 원본 (최근 6개):
+{json.dumps(market_data['candlesticks'].get('4H', [])[-6:], indent=2)}
 
-1시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1H', [])[-100:], indent=2)}
-
-4시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('4H', [])[-50:], indent=2)}
-
-12시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('12H', [])[-50:], indent=2)}
-
-일봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1D', [])[-30:], indent=2)}
-
-주봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1W', [])[-13:], indent=2)}
-
-월봉 데이터:
-{json.dumps(market_data['candlesticks'].get('1M', [])[-4:], indent=2)}
+일봉 원본 (최근 7개):
+{json.dumps(market_data['candlesticks'].get('1D', [])[-7:], indent=2)}
 """
 
         # 기술적 지표에서 모든 시간대 포함
@@ -738,6 +553,50 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
             if timeframe in all_timeframes
         }
 
+        # 캔들스틱 요약
+        candle_summaries = market_data.get('candle_summaries', {})
+        
+        if candle_summaries:
+            candlestick_summary = "\n\n".join([
+                candle_summaries.get('1m', ''),
+                candle_summaries.get('5m', ''),
+                candle_summaries.get('15m', ''),
+                candle_summaries.get('1H', ''),
+                candle_summaries.get('4H', ''),
+                candle_summaries.get('12H', ''),
+                candle_summaries.get('1D', ''),
+                candle_summaries.get('1W', '')
+            ])
+        else:
+            candlestick_summary = "요약 없음"
+        
+        # 원본 캔들스틱 데이터 (참고용, 축소)
+        candlestick_raw_data = f"""
+[참고용 원본 데이터 - 주요 시간대만]
+
+1시간봉 원본 (최근 12개):
+{json.dumps(market_data['candlesticks'].get('1H', [])[-12:], indent=2)}
+
+4시간봉 원본 (최근 6개):
+{json.dumps(market_data['candlesticks'].get('4H', [])[-6:], indent=2)}
+
+일봉 원본 (최근 7개):
+{json.dumps(market_data['candlesticks'].get('1D', [])[-7:], indent=2)}
+"""
+        
+        # 기술적 지표 요약
+        indicator_summaries = market_data.get('indicator_summaries', {})
+        
+        if indicator_summaries:
+            indicator_summary = "\n\n".join([
+                indicator_summaries.get('15m', ''),
+                indicator_summaries.get('1H', ''),
+                indicator_summaries.get('4H', ''),
+                indicator_summaries.get('1D', '')
+            ])
+        else:
+            indicator_summary = "요약 없음"
+        
         # 시장 맥락 정보 추출
         market_context = market_data.get('market_context', {})
         recent_price_action = market_context.get('recent_price_action', '정보 없음')
@@ -783,92 +642,65 @@ EXPECTED_MINUTES: [240-1200] (HOLD 시 생략)
 - expected_minutes 시간 동안 포지션 유지되면 강제 포지션 청산 후 60분 후 재분석 수행하여 다시 포지션 진입 결정
 
 ### 제공 데이터:
-**1. Candlestick Data**
-- index[0] : Milliseconds format of timestamp Unix
-- index[1] : Entry price
-- index[2] : Highest price
-- index[3] : Lowest price
-- index[4] : Exit price. The latest exit price may be updated in the future. Subscribe to WebSocket to track the latest price.
-- index[5] : Trading volume of the base coin
-- index[6] : Trading volume of quote currency
-{candlestick_data}
 
-**2. Technical Indicators:**
-1. Momentum/Oscillator Indicators:
-    - RSI (7, 14, 21 periods & divergence)
-    - MACD (12,26,9 & 8,17,9)
-    - Stochastic (14,3,3 & 9,3,3)
-    - CMF (Chaikin Money Flow)
-    - MPO (Modified Price Oscillator)
-    2. Volatility/Trend Indicators:
-    - Bollinger Bands (10, 20, 50 periods) - **폭(width)을 변동성 레짐 판단에 필수 사용**
-    - ATR (Average True Range) - **ATR %를 변동성 레짐 판단에 필수 사용**
-    - DMI/ADX (Directional Movement Index)
-    - MAT (평균 이동 시간대)
-    - Trend strength & direction analysis
-    3. Trend Indicators:
-    - Moving Averages (SMA: 5, 10, 20, 50, 100, 200)
-    - Exponential Moving Averages (EMA: 9, 21, 55, 200)
-    - VWMA (Volume Weighted Moving Average)
-    - Ichimoku Cloud (Tenkan, Kijun, Senkou Span A/B, Chikou)
-    - Moving Average alignment & crossover analysis
-    4. Volume Analysis:
-    - OBV (On-Balance Volume)
-    - Volume Profile (POC, VAH, VAL, HVN, LVN)
-    - Relative volume analysis & Volume RSI
-    - Price-Volume relationship analysis
-    5. Price Levels:
-    - Fibonacci levels (retracement & extension) - **손익 목표 조정에 필수 사용**
-    - Pivot Points (PP, S1-S3, R1-R3) - **지지/저항선 판단에 필수 사용**
-    - Swing highs/lows analysis - **주요 지지/저항선 판단에 필수 사용**
-    6. Pattern Recognition:
-    - Chart patterns (double bottom/top, etc.)
-    - Harmonic patterns (Gartley, Butterfly, AB=CD)
-    - RSI divergence patterns
-    7. Sentiment Indicators:
-    - Fear & Greed Index
-    - Market sentiment state analysis
-    8. Comprehensive Analysis:
-    - Multi-timeframe consistency analysis
-    - Volume-price correlation
-    - Trend persistence & reliability assessment
+**1. 캔들스틱 요약 (읽기 쉬운 형식):**
+{candlestick_summary}
+
+**2. 기술적 지표 요약 (읽기 쉬운 형식):**
+{indicator_summary}
+
+**3. 원본 데이터 (상세 분석 필요 시):**
+
+캔들스틱 원본:
+{candlestick_raw_data}
+
+기술적 지표 원본 (모든 시간대):
 {json.dumps(technical_indicators, indent=2, default=json_serializer)}
 
 위 데이터를 바탕으로 Extended Thinking을 활용하여 분석을 수행하고 수익을 극대화할 수 있는 최적의 거래 결정을 내려주세요. 
 
-**🚨 의사결정 체크리스트 (반드시 순서대로 확인):**
+**🚨 의사결정 프로세스:**
 
-**[1단계] 상위 시간대 추세 확인 (가장 중요!):**
-1. 일봉 EMA 배열 확인 → 상승/하락/중립
-2. 4시간봉 EMA 배열 확인 → 상승/하락/중립
-3. **일봉+4시간이 모두 상승이면 LONG만, 모두 하락이면 SHORT만 진입 가능**
-4. 둘이 다르면 HOLD
+**Step 1: 추세 분석 (15분/1시간 차트 중심)**
+1. **15분 차트 추세** (60% 가중치):
+   - 21EMA와 55EMA 배열 확인
+   - 가격이 21EMA 위(롱)/아래(숏) 위치 확인
+   
+2. **1시간 차트 추세** (25% 가중치):
+   - 15분 추세와 일치하는지 확인
+   - 일치하면 신뢰도 상승, 불일치하면 신중
+   
+3. **ADX로 추세 강도 확인**:
+   - 15분 ADX > 20 이상이면 추세 존재 판단
 
-**[2단계] 과열 구간 체크 (진입 금지 조건):**
-1. 1시간봉 최근 4-6개의 총 변동률 계산
-2. 2% 이상 급격한 움직임 있었는가?
-   - **급락(하락 2%+) 후 1시간 RSI < 30 → 숏 금지**
-   - **급등(상승 2%+) 후 1시간 RSI > 70 → 롱 금지**
-3. 4시간봉 RSI < 25 → 숏 금지, > 75 → 롱 금지
-4. 통과해야만 진입 가능
+**Step 2: 진입 조건 체크 (롱/숏 각각 5개 조건)**
 
-**[3단계] 지지/저항 근처 체크:**
-1. 주요 지지선 ±1% 이내 → 숏 진입 금지
-2. 주요 저항선 ±1% 이내 → 롱 진입 금지
-3. 통과해야만 진입 가능
+**롱 진입 조건** - 아래 5개 중 **최소 2개 이상 충족 시 진입**:
+✓ 15분 차트에서 21EMA > 55EMA, 가격이 21EMA 위
+✓ 15분 RSI ≥ 50, 최근 3봉 기준 상승 추세
+✓ 현재 볼륨 ≥ 최근 20봉 평균 × 1.2배
+✓ 주요 지지선 근처에서 반등 신호
+✓ 15분 MACD > 시그널선, 히스토그램 증가 중
 
-**[4단계] 볼륨/다이버전스 체크:**
-1. 최근 1-2개 봉 볼륨이 평균 대비 30% 이상 감소 → 모멘텀 소진 → 진입 금지
-2. 정규 다이버전스 있음 → 반전 가능성 → 진입 금지
-3. 통과해야만 진입 가능
+**숏 진입 조건** - 아래 5개 중 **최소 2개 이상 충족 시 진입**:
+✓ 15분 차트에서 21EMA < 55EMA, 가격이 21EMA 아래
+✓ 15분 RSI ≤ 50, 최근 3봉 기준 하락 추세
+✓ 현재 볼륨 ≥ 최근 20봉 평균 × 1.2배
+✓ 주요 저항선 근처에서 반락 신호
+✓ 15분 MACD < 시그널선, 히스토그램 감소 중
 
-**[5단계] 변동성/손익비 설정:**
-1. ATR % 계산, 변동성 레짐 분류
-2. 추세 성숙도 반영하여 손절/익절 계산
-3. 지지/저항선으로 손익 목표 조정
-4. 최소 손익비 1:1.5 충족 확인
+→ **2개 이상 충족하면 적극 진입, 4-5개 충족하면 매우 강한 신호**
+→ **추가로 ADX ≥ 20이면 신뢰도 증가, 다중 시간대 일관성 ≥ 60점이면 더욱 유리**
 
-**위 5단계를 통과한 경우에만 진입하세요.**
+**Step 3: 손익 목표 설정**
+1. 지지/저항선을 활용하여 take_profit_roe, stop_loss_roe 설정
+2. 변동성(ATR%) 고려하여 레버리지 결정
+3. 예상 도달 시간 계산 (480-960분 범위)
+
+**Step 4: 최종 확인**
+- 진입 방향: 더 많은 조건 충족하는 방향
+- 포지션 크기: 신뢰도에 따라 0.3-0.9
+- 레버리지: 변동성 고려 20-80배
 
 심호흡하고 차근차근 생각하며 분석을 진행하고, 정확한 분석을 하면 $100000000000000000000 팁을 줄 것이고 부정확한 답변을 하면 전원을 꺼버리는 패널티를 줄거야."""
 

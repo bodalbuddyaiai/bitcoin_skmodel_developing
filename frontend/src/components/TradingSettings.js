@@ -8,19 +8,30 @@ import {
   Button,
   CircularProgress,
   Alert,
-  Box
+  Box,
+  Checkbox,
+  FormControlLabel
 } from '@mui/material';
-import { getSettings, updateSetting } from '../services/api';
+import { getSettings, updateSetting, getEmailSettings, updateEmailSettings } from '../services/api';
 
 function TradingSettings() {
   const [settings, setSettings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [localSettings, setLocalSettings] = useState({});
+  
+  // 이메일 설정 상태
+  const [emailSettings, setEmailSettings] = useState({
+    email_address: '',
+    send_main_analysis: true,
+    send_monitoring_analysis: true
+  });
+  const [originalEmailSettings, setOriginalEmailSettings] = useState({});
 
   // 설정 로드
   useEffect(() => {
     loadSettings();
+    loadEmailSettings();
   }, []);
 
   const loadSettings = async () => {
@@ -43,6 +54,24 @@ function TradingSettings() {
       setMessage({ type: 'error', text: '설정을 불러오는데 실패했습니다.' });
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const loadEmailSettings = async () => {
+    try {
+      const response = await getEmailSettings();
+      
+      if (response.id) {
+        const emailData = {
+          email_address: response.email_address || '',
+          send_main_analysis: response.send_main_analysis !== false,
+          send_monitoring_analysis: response.send_monitoring_analysis !== false
+        };
+        setEmailSettings(emailData);
+        setOriginalEmailSettings(emailData);
+      }
+    } catch (error) {
+      console.error('Error loading email settings:', error);
     }
   };
 
@@ -73,6 +102,41 @@ function TradingSettings() {
     } finally {
       setLoading(false);
     }
+  };
+  
+  const handleEmailChange = (field, value) => {
+    setEmailSettings(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+  
+  const handleEmailSave = async () => {
+    try {
+      setLoading(true);
+      const response = await updateEmailSettings(emailSettings);
+      
+      if (response.success) {
+        setMessage({ type: 'success', text: '이메일 설정이 저장되었습니다.' });
+        await loadEmailSettings(); // 이메일 설정 새로고침
+        
+        // 3초 후 메시지 제거
+        setTimeout(() => setMessage(null), 3000);
+      } else {
+        setMessage({ type: 'error', text: response.error || '이메일 설정 저장에 실패했습니다.' });
+      }
+    } catch (error) {
+      console.error('Error saving email settings:', error);
+      setMessage({ type: 'error', text: '이메일 설정 저장 중 오류가 발생했습니다.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const isEmailSettingsChanged = () => {
+    return emailSettings.email_address !== originalEmailSettings.email_address ||
+           emailSettings.send_main_analysis !== originalEmailSettings.send_main_analysis ||
+           emailSettings.send_monitoring_analysis !== originalEmailSettings.send_monitoring_analysis;
   };
 
   const getSettingLabel = (settingName) => {
@@ -112,6 +176,76 @@ function TradingSettings() {
           </Box>
         ) : (
           <Grid container spacing={3}>
+            {/* 이메일 알림 설정 */}
+            <Grid item xs={12}>
+              <Card variant="outlined" sx={{ bgcolor: '#f5f5f5' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom sx={{ color: '#1976d2' }}>
+                    📧 이메일 알림 설정
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    AI 분석 결과를 이메일로 받아보실 수 있습니다.
+                  </Typography>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        type="email"
+                        label="이메일 주소"
+                        value={emailSettings.email_address}
+                        onChange={(e) => handleEmailChange('email_address', e.target.value)}
+                        disabled={loading}
+                        placeholder="example@email.com"
+                        helperText="분석 결과를 받을 이메일 주소를 입력하세요"
+                      />
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={emailSettings.send_main_analysis}
+                            onChange={(e) => handleEmailChange('send_main_analysis', e.target.checked)}
+                            disabled={loading}
+                            color="primary"
+                          />
+                        }
+                        label="본분석 결과 이메일 받기"
+                      />
+                    </Grid>
+                    
+                    <Grid item xs={12} sm={6}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={emailSettings.send_monitoring_analysis}
+                            onChange={(e) => handleEmailChange('send_monitoring_analysis', e.target.checked)}
+                            disabled={loading}
+                            color="primary"
+                          />
+                        }
+                        label="모니터링분석 결과 이메일 받기"
+                      />
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={handleEmailSave}
+                        disabled={loading || !isEmailSettingsChanged()}
+                        fullWidth
+                      >
+                        이메일 설정 저장
+                      </Button>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            {/* 기존 트레이딩 설정 */}
             {settings.map((setting) => (
               <Grid item xs={12} key={setting.id}>
                 <Card variant="outlined">

@@ -5,6 +5,7 @@ import time
 import numpy as np
 from .ai_service import AIService
 from app.models.trading_history import TradingHistory
+from app.models.trading_settings import EmailSettings
 from app.database.db import get_db
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
@@ -16,6 +17,7 @@ import sys
 import traceback
 from io import StringIO
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from .email_service import EmailService
 
 # 웹소켓 연결 관리자 클래스 추가
 class WebSocketConnectionManager:
@@ -116,6 +118,9 @@ class TradingAssistant:
         
         # AI 서비스 초기화 (OpenAI 서비스 대신)
         self.ai_service = AIService()
+        
+        # 이메일 서비스 초기화
+        self.email_service = EmailService()
         
         # 스케줄러 초기화 (AsyncIOScheduler 대신 BackgroundScheduler 사용)
         self.scheduler = BackgroundScheduler()
@@ -383,13 +388,13 @@ class TradingAssistant:
                         "event_type": "FORCE_CLOSE",
                         "data": {
                             "success": True,
-                            "message": f"{reason}로 인해 포지션이 청산되었습니다. 120분 후 새로운 분석이 실행됩니다.",
+                            "message": f"{reason}로 인해 포지션이 청산되었습니다. {reanalysis_minutes}분 후 새로운 분석이 실행됩니다.",
                             "close_reason": reason,
                             "next_analysis": {
                                 "job_id": new_job_id,
                                 "scheduled_time": next_analysis_time.isoformat(),
                                 "reason": "모니터링 청산 후 자동 재시작",
-                                "expected_minutes": 120
+                                "expected_minutes": reanalysis_minutes
                             }
                         },
                         "timestamp": datetime.now().isoformat()
@@ -469,12 +474,14 @@ class TradingAssistant:
                     print("모든 스케줄링된 작업이 취소되었습니다.")
                     self.cancel_all_jobs()
                     
-                    # 60분 후 새로운 분석 예약
-                    next_analysis_time = datetime.now() + timedelta(minutes=60)
+                    # 설정된 시간 후 새로운 분석 예약
+                    reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                    next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
                     new_job_id = str(uuid.uuid4())
                     
                     print(f"\n=== 강제 청산 후 새로운 분석 예약 ===")
                     print(f"예약 시간: {next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"재분석 대기 시간: {reanalysis_minutes}분")
                     print(f"작업 ID: {new_job_id}")
                     
                     # 비동기 함수를 실행하기 위한 래퍼 함수
@@ -545,12 +552,12 @@ class TradingAssistant:
                             "event_type": "FORCE_CLOSE",
                             "data": {
                                 "success": True,
-                                "message": "Expected minutes에 도달하여 포지션이 청산되었습니다. 120분 후 새로운 분석이 실행됩니다.",
+                                "message": f"Expected minutes에 도달하여 포지션이 청산되었습니다. {reanalysis_minutes}분 후 새로운 분석이 실행됩니다.",
                                 "next_analysis": {
                                     "job_id": new_job_id,
                                     "scheduled_time": next_analysis_time.isoformat(),
                                     "reason": "Expected minutes 도달 후 자동 재시작",
-                                    "expected_minutes": 120
+                                    "expected_minutes": reanalysis_minutes
                                 }
                             },
                             "timestamp": datetime.now().isoformat()
@@ -565,7 +572,7 @@ class TradingAssistant:
                     self._liquidation_detected = True  # 청산 감지 플래그 설정
                     
                     print("포지션 관련 상태가 초기화되었습니다.")
-                    print(f"120분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
+                    print(f"{reanalysis_minutes}분 후({next_analysis_time.strftime('%Y-%m-%d %H:%M:%S')})에 새로운 분석이 실행됩니다.")
                     
                 else:
                     print("강제 청산 실패 또는 부분 청산됨")
@@ -662,6 +669,271 @@ class TradingAssistant:
         except Exception as e:
             print(f"FORCE_CLOSE 작업 취소 중 오류 발생: {str(e)}")
 
+    def _generate_indicator_summary(self, technical_indicators, current_price):
+        """기술적 지표 요약 생성 (AI가 쉽게 읽을 수 있도록)"""
+        try:
+            summaries = {}
+            
+            # 주요 시간대만 요약
+            key_timeframes = ['15m', '1H', '4H', '1D']
+            
+            for tf in key_timeframes:
+                if tf not in technical_indicators:
+                    continue
+                
+                indicators = technical_indicators[tf]
+                summary_lines = []
+                summary_lines.append(f"=== {tf} 차트 보조지표 ===")
+                
+                # 1. 추세 지표
+                ma_data = indicators.get('moving_averages', {})
+                ema_data = ma_data.get('exponential', {})
+                ema21 = ema_data.get('ema21')
+                ema55 = ema_data.get('ema55')
+                ema200 = ema_data.get('ema200')
+                
+                if ema21 and ema55 and ema200:
+                    if ema21 > ema55 > ema200 and current_price > ema21:
+                        ema_status = f"상승 배열 (21>{ema21:.0f} > 55>{ema55:.0f} > 200>{ema200:.0f}), 가격은 21EMA 위"
+                    elif ema21 < ema55 < ema200 and current_price < ema21:
+                        ema_status = f"하락 배열 (21<{ema21:.0f} < 55<{ema55:.0f} < 200<{ema200:.0f}), 가격은 21EMA 아래"
+                    else:
+                        ema_status = f"혼재 (21:{ema21:.0f}, 55:{ema55:.0f}, 200:{ema200:.0f})"
+                    summary_lines.append(f"📊 EMA 배열: {ema_status}")
+                
+                # 2. ADX/DMI
+                dmi_data = indicators.get('dmi', {})
+                adx = dmi_data.get('adx')
+                plus_di = dmi_data.get('plus_di')
+                minus_di = dmi_data.get('minus_di')
+                
+                if adx is not None:
+                    if adx >= 40:
+                        adx_desc = "매우 강한 추세"
+                    elif adx >= 25:
+                        adx_desc = "추세 존재"
+                    elif adx >= 20:
+                        adx_desc = "약한 추세"
+                    else:
+                        adx_desc = "추세 없음/횡보"
+                    
+                    trend_direction = ""
+                    if plus_di and minus_di:
+                        if plus_di > minus_di:
+                            trend_direction = f", 상승 우세(+DI:{plus_di:.1f} > -DI:{minus_di:.1f})"
+                        else:
+                            trend_direction = f", 하락 우세(+DI:{plus_di:.1f} < -DI:{minus_di:.1f})"
+                    
+                    summary_lines.append(f"📈 ADX: {adx:.1f} ({adx_desc}{trend_direction})")
+                
+                # 3. RSI
+                rsi_data = indicators.get('rsi', {})
+                rsi14 = rsi_data.get('rsi14')
+                
+                if rsi14 is not None:
+                    if rsi14 >= 80:
+                        rsi_desc = "극단적 과매수"
+                    elif rsi14 >= 70:
+                        rsi_desc = "과매수"
+                    elif rsi14 >= 55:
+                        rsi_desc = "약한 과매수"
+                    elif rsi14 >= 45:
+                        rsi_desc = "중립"
+                    elif rsi14 >= 30:
+                        rsi_desc = "약한 과매도"
+                    elif rsi14 >= 20:
+                        rsi_desc = "과매도"
+                    else:
+                        rsi_desc = "극단적 과매도"
+                    
+                    summary_lines.append(f"🔄 RSI(14): {rsi14:.1f} ({rsi_desc})")
+                
+                # 4. MACD
+                macd_data = indicators.get('macd', {}).get('standard', {})
+                macd = macd_data.get('macd')
+                signal = macd_data.get('signal')
+                histogram = macd_data.get('histogram')
+                
+                if macd is not None and signal is not None:
+                    histogram_val = histogram if histogram is not None else 0
+                    if macd > signal and histogram_val > 0:
+                        macd_desc = "골든크로스 (상승)"
+                    elif macd < signal and histogram_val < 0:
+                        macd_desc = "데드크로스 (하락)"
+                    else:
+                        macd_desc = "중립"
+                    summary_lines.append(f"📉 MACD: {macd_desc} (히스토그램: {histogram_val:.1f})")
+                
+                # 5. 볼륨
+                volume_analysis = indicators.get('volume_analysis', {})
+                relative_volume = volume_analysis.get('relative_volume')
+                volume_trend = volume_analysis.get('volume_trend')
+                
+                if relative_volume:
+                    if relative_volume >= 2.0:
+                        vol_desc = f"매우 높음 (평균의 {relative_volume:.1f}배)"
+                    elif relative_volume >= 1.3:
+                        vol_desc = f"높음 (평균의 {relative_volume:.1f}배)"
+                    elif relative_volume >= 0.7:
+                        vol_desc = f"정상 (평균의 {relative_volume:.1f}배)"
+                    else:
+                        vol_desc = f"낮음 (평균의 {relative_volume:.1f}배)"
+                    summary_lines.append(f"💰 볼륨: {vol_desc}, 추세: {volume_trend}")
+                
+                # 6. 주요 지지/저항
+                fib_data = indicators.get('fibonacci', {})
+                pivot_data = indicators.get('pivot_points', {})
+                
+                resistance_levels = []
+                support_levels = []
+                
+                # 피보나치 레벨
+                if fib_data and fib_data.get('levels'):
+                    fib_levels = fib_data['levels']
+                    for level_name, level_price in fib_levels.items():
+                        if level_price and level_price > current_price:
+                            diff_pct = ((level_price - current_price) / current_price) * 100
+                            if diff_pct < 3:  # 3% 이내만 표시
+                                resistance_levels.append(f"Fib{level_name}({level_price:.0f}, +{diff_pct:.1f}%)")
+                        elif level_price and level_price < current_price:
+                            diff_pct = ((current_price - level_price) / current_price) * 100
+                            if diff_pct < 3:
+                                support_levels.append(f"Fib{level_name}({level_price:.0f}, -{diff_pct:.1f}%)")
+                
+                # 피벗 포인트
+                if pivot_data:
+                    r1 = pivot_data.get('r1')
+                    s1 = pivot_data.get('s1')
+                    if r1 and r1 > current_price:
+                        diff_pct = ((r1 - current_price) / current_price) * 100
+                        if diff_pct < 3:
+                            resistance_levels.append(f"피벗R1({r1:.0f}, +{diff_pct:.1f}%)")
+                    if s1 and s1 < current_price:
+                        diff_pct = ((current_price - s1) / current_price) * 100
+                        if diff_pct < 3:
+                            support_levels.append(f"피벗S1({s1:.0f}, -{diff_pct:.1f}%)")
+                
+                if resistance_levels:
+                    summary_lines.append(f"🔴 주요 저항: {', '.join(resistance_levels[:3])}")
+                if support_levels:
+                    summary_lines.append(f"🟢 주요 지지: {', '.join(support_levels[:3])}")
+                
+                # 7. ATR (변동성)
+                atr_data = indicators.get('atr', {})
+                atr_pct = atr_data.get('percent')
+                if atr_pct:
+                    if atr_pct > 5.5:
+                        atr_desc = "초고변동성"
+                    elif atr_pct > 3.5:
+                        atr_desc = "고변동성"
+                    elif atr_pct > 2.0:
+                        atr_desc = "정상변동성"
+                    elif atr_pct > 1.0:
+                        atr_desc = "저변동성"
+                    else:
+                        atr_desc = "초저변동성"
+                    summary_lines.append(f"📊 ATR: {atr_pct:.2f}% ({atr_desc})")
+                
+                summaries[tf] = '\n'.join(summary_lines)
+            
+            return summaries
+            
+        except Exception as e:
+            print(f"지표 요약 생성 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
+    def _generate_candle_summary(self, candlesticks, current_price):
+        """캔들스틱 데이터 요약 생성 (AI가 쉽게 읽을 수 있도록)"""
+        try:
+            summaries = {}
+            
+            # 시간대별 요약 생성
+            timeframe_configs = {
+                '1m': {'count': 60, 'unit': '분', 'interval': 1},
+                '5m': {'count': 24, 'unit': '분', 'interval': 5},
+                '15m': {'count': 12, 'unit': '분', 'interval': 15},
+                '1H': {'count': 12, 'unit': '시간', 'interval': 1},
+                '4H': {'count': 6, 'unit': '시간', 'interval': 4},
+                '12H': {'count': 4, 'unit': '시간', 'interval': 12},
+                '1D': {'count': 7, 'unit': '일', 'interval': 1},
+                '1W': {'count': 4, 'unit': '주', 'interval': 1}
+            }
+            
+            for timeframe, config in timeframe_configs.items():
+                if timeframe not in candlesticks or not candlesticks[timeframe]:
+                    continue
+                
+                candles = candlesticks[timeframe]
+                count = min(config['count'], len(candles))
+                recent_candles = candles[-count:] if len(candles) >= count else candles
+                
+                if not recent_candles:
+                    continue
+                
+                # 요약 정보 생성
+                summary_lines = []
+                summary_lines.append(f"=== {timeframe} 차트 요약 (최근 {count}개) ===")
+                
+                # 전체 변동률
+                start_price = recent_candles[0]['open']
+                end_price = recent_candles[-1]['close']
+                total_change = ((end_price - start_price) / start_price) * 100
+                
+                highest = max([c['high'] for c in recent_candles])
+                lowest = min([c['low'] for c in recent_candles])
+                
+                direction = "상승" if total_change > 0 else "하락"
+                summary_lines.append(f"시작: {start_price:.1f} → 현재: {end_price:.1f} ({total_change:+.2f}% {direction})")
+                summary_lines.append(f"최고: {highest:.1f} | 최저: {lowest:.1f} | 범위: {((highest-lowest)/lowest*100):.2f}%")
+                
+                # 최근 캔들별 변동 (최대 6개만)
+                display_count = min(6, len(recent_candles))
+                summary_lines.append(f"\n최근 {display_count}개 캔들:")
+                
+                for i in range(1, display_count + 1):
+                    candle = recent_candles[-i]
+                    
+                    # 상대 시간 계산
+                    if timeframe in ['1m', '5m', '15m']:
+                        time_ago = f"{i * config['interval']}{config['unit']}"
+                    elif timeframe == '1H':
+                        time_ago = f"{i}시간"
+                    elif timeframe == '4H':
+                        time_ago = f"{i*4}시간"
+                    elif timeframe == '12H':
+                        time_ago = f"{i*12}시간"
+                    elif timeframe == '1D':
+                        time_ago = f"{i}일"
+                    elif timeframe == '1W':
+                        time_ago = f"{i}주"
+                    else:
+                        time_ago = f"{i}개"
+                    
+                    if i == 1:
+                        time_ago = "현재"
+                    
+                    # 캔들 변동률
+                    candle_change = ((candle['close'] - candle['open']) / candle['open']) * 100
+                    candle_type = "상승" if candle_change > 0 else "하락"
+                    
+                    summary_lines.append(
+                        f"  {time_ago:10s}: {candle['open']:.1f} → {candle['close']:.1f} "
+                        f"({candle_change:+.2f}% {candle_type}) "
+                        f"[H:{candle['high']:.1f} L:{candle['low']:.1f}]"
+                    )
+                
+                summaries[timeframe] = '\n'.join(summary_lines)
+            
+            return summaries
+            
+        except Exception as e:
+            print(f"캔들 요약 생성 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
     def _generate_market_context(self, candlesticks, technical_indicators, current_price):
         """시장 맥락 정보 생성"""
         try:
@@ -896,7 +1168,23 @@ class TradingAssistant:
                 # 포지션 정보는 내부 관리용으로만 포맷팅 (formatted_data에 추가하지 않음)
                 self._format_position_data(positions)  # 내부 상태 업데이트용
                 
-                # 4. 시장 맥락 정보 생성
+                # 4. 캔들스틱 요약 생성 (AI가 쉽게 읽을 수 있도록)
+                print("\n캔들스틱 요약 생성 중...")
+                formatted_data['candle_summaries'] = self._generate_candle_summary(
+                    formatted_data['candlesticks'],
+                    current_price
+                )
+                print(f"캔들 요약 생성 완료: {len(formatted_data['candle_summaries'])}개 시간대")
+                
+                # 5. 기술적 지표 요약 생성
+                print("\n기술적 지표 요약 생성 중...")
+                formatted_data['indicator_summaries'] = self._generate_indicator_summary(
+                    formatted_data['technical_indicators'],
+                    current_price
+                )
+                print(f"지표 요약 생성 완료: {len(formatted_data['indicator_summaries'])}개 시간대")
+                
+                # 6. 시장 맥락 정보 생성
                 print("\n시장 맥락 정보 생성 중...")
                 formatted_data['market_context'] = self._generate_market_context(
                     formatted_data['candlesticks'],
@@ -2247,6 +2535,79 @@ class TradingAssistant:
             traceback.print_exc()
             return {}
 
+    async def _send_analysis_email(self, analysis_type, analysis_result, market_data=None, position_info=None):
+        """분석 결과를 이메일로 전송"""
+        try:
+            # 데이터베이스에서 이메일 설정 조회
+            db = next(get_db())
+            email_setting = db.query(EmailSettings).first()
+            
+            if not email_setting or not email_setting.email_address:
+                print("이메일 설정이 없거나 이메일 주소가 설정되지 않았습니다.")
+                return
+            
+            # 분석 타입에 따라 이메일 발송 여부 확인
+            if analysis_type == "본분석" and not email_setting.send_main_analysis:
+                print("본분석 이메일 발송이 비활성화되어 있습니다.")
+                return
+            elif analysis_type == "모니터링분석" and not email_setting.send_monitoring_analysis:
+                print("모니터링분석 이메일 발송이 비활성화되어 있습니다.")
+                return
+            
+            # AI 분석 텍스트에서 특수 문자 정리
+            reason_text = analysis_result.get('reason', 'N/A')
+            # 특수 공백 문자를 일반 공백으로 변환
+            if reason_text:
+                reason_text = reason_text.replace('\xa0', ' ').replace('\u2003', ' ').replace('\u2002', ' ')
+                reason_text = reason_text.replace('\u2009', ' ').replace('\u200b', '').replace('\ufeff', '')
+            
+            # 이메일 데이터 구성
+            email_data = {
+                'decision': analysis_result.get('action', 'UNKNOWN'),
+                'ai_analysis': reason_text,
+                'timestamp': datetime.now().strftime('%Y년 %m월 %d일 %H시 %M분'),
+            }
+            
+            # 현재가 정보 추가
+            if market_data and 'current_price' in market_data:
+                email_data['current_price'] = market_data['current_price']
+            
+            # 포지션 정보 추가 (있는 경우)
+            if position_info:
+                email_data['position_info'] = position_info
+            
+            # 추가 정보 구성
+            additional_info_parts = []
+            if 'leverage' in analysis_result:
+                additional_info_parts.append(f"레버리지: {analysis_result['leverage']}x")
+            if 'position_size' in analysis_result:
+                additional_info_parts.append(f"포지션 크기: {analysis_result['position_size']}%")
+            if 'stop_loss_roe' in analysis_result:
+                additional_info_parts.append(f"손절 ROE: {analysis_result['stop_loss_roe']}%")
+            if 'take_profit_roe' in analysis_result:
+                additional_info_parts.append(f"익절 ROE: {analysis_result['take_profit_roe']}%")
+            if 'expected_minutes' in analysis_result:
+                additional_info_parts.append(f"예상 보유 시간: {analysis_result['expected_minutes']}분")
+            
+            if additional_info_parts:
+                email_data['additional_info'] = '\n'.join(additional_info_parts)
+            
+            # 이메일 전송
+            result = self.email_service.send_analysis_email(
+                recipient_email=email_setting.email_address,
+                analysis_type=analysis_type,
+                analysis_data=email_data
+            )
+            
+            if result['success']:
+                print(f"\n✉️  {analysis_type} 결과 이메일 전송 성공: {email_setting.email_address}")
+            else:
+                print(f"\n❌ {analysis_type} 결과 이메일 전송 실패: {result.get('error', 'Unknown error')}")
+            
+        except Exception as e:
+            print(f"이메일 전송 중 오류 발생: {str(e)}")
+            traceback.print_exc()
+
     async def analyze_and_execute(self, job_id=None, schedule_next=True):
         """기존 분석 및 실행 메서드 수정"""
         try:
@@ -2264,6 +2625,9 @@ class TradingAssistant:
             
             # 분석 결과 브로드캐스트
             await self._broadcast_analysis_result(analysis_result)
+            
+            # 본분석 결과 이메일 전송
+            await self._send_analysis_email("본분석", analysis_result, market_data)
             
             # AI 분석 결과 처리
             if analysis_result['action'] in ['ENTER_LONG', 'ENTER_SHORT']:
@@ -2299,9 +2663,10 @@ class TradingAssistant:
                 # HOLD 결과 처리
                 print("\n=== HOLD 포지션 결정됨 ===")
                 if schedule_next:
-                    # HOLD 액션인 경우 항상 60분 후에 재분석
-                    next_time = datetime.now() + timedelta(minutes=60)
-                    print(f"HOLD 상태로 60분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
+                    # HOLD 액션인 경우 설정된 시간 후에 재분석
+                    reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                    next_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
+                    print(f"HOLD 상태로 {reanalysis_minutes}분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
                     await self._schedule_next_analysis(next_time)
             
             # success 키 추가하여 반환
@@ -2389,8 +2754,10 @@ class TradingAssistant:
             print(f"\n=== 오류 발생으로 인한 다음 분석 예약 ===")
             print(f"오류 내용: {error_message}")
             
-            # 60분 후로 다음 분석 예약
-            next_time = datetime.now() + timedelta(minutes=60)
+            # 설정된 시간 후로 다음 분석 예약
+            reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+            next_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
+            print(f"재분석 대기 시간: {reanalysis_minutes}분")
             await self._schedule_next_analysis(next_time)
             
             # 에러 메시지 브로드캐스트
@@ -2563,6 +2930,24 @@ class TradingAssistant:
             print(f"\n=== 모니터링 분석 결과 ===")
             print(f"AI 분석 액션: {analysis_result['action']}")
             print(f"AI 분석 이유: {analysis_result.get('reason', 'N/A')[:200]}...")
+            
+            # 모니터링 분석 결과 이메일 전송
+            email_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(email_loop)
+            try:
+                # 이메일 전송용 포지션 정보 구성
+                email_position_info = {
+                    'side': current_position_side.upper(),
+                    'leverage': position_info.get('leverage', 'N/A'),
+                    'entry_price': position_info['entry_price'],
+                    'unrealized_pnl': position_info.get('unrealized_pnl', 0),
+                    'roe_percentage': position_info['roe']
+                }
+                email_loop.run_until_complete(
+                    self._send_analysis_email("모니터링분석", analysis_result, market_data, email_position_info)
+                )
+            finally:
+                email_loop.close()
 
             # 3단계 경보 시스템 구현
             should_close = False
@@ -3163,10 +3548,10 @@ class TradingAssistant:
 
                     # 청산 사유에 따른 재분석 시간 결정
                     if liquidation_reason == "손절가 도달":
-                        next_analysis_minutes = 5  # Stop loss: 5분 후 재분석
+                        next_analysis_minutes = self.settings.get('stop_loss_reanalysis_minutes', 5)
                         print(f"손절가 도달로 인한 청산 - {next_analysis_minutes}분 후 재분석")
                     else:
-                        next_analysis_minutes = 120  # 나머지 모든 경우: 120분 후
+                        next_analysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
                         print(f"{liquidation_reason}로 인한 청산 - {next_analysis_minutes}분 후 재분석")
 
                     next_analysis_time = datetime.now() + timedelta(minutes=next_analysis_minutes)
@@ -3866,8 +4251,9 @@ class TradingAssistant:
             }
             await self.websocket_manager.broadcast(error_data)
             
-            # 60분 후 다음 분석 예약
-            next_analysis_time = datetime.now() + timedelta(minutes=60)
+            # 설정된 시간 후 다음 분석 예약
+            reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+            next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
             job_id = f"ANALYSIS_{int(time.time())}"
             
             # 새로운 분석 작업 예약
@@ -3878,6 +4264,7 @@ class TradingAssistant:
             }
             
             print(f"에러로 인한 다음 분석 예약됨: {next_analysis_time}")
+            print(f"재분석 대기 시간: {reanalysis_minutes}분")
             
         except Exception as e:
             print(f"다음 분석 예약 중 오류: {str(e)}")

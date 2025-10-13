@@ -196,4 +196,26 @@ export const updateSetting = async (settingName, settingValue) => {
   }
 };
 
+// 이메일 설정 조회
+export const getEmailSettings = async () => {
+  try {
+    const response = await api.get('/api/trading/email-settings');
+    return response.data;
+  } catch (error) {
+    console.error('Error getting email settings:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// 이메일 설정 업데이트
+export const updateEmailSettings = async (emailSettings) => {
+  try {
+    const response = await api.put('/api/trading/email-settings', emailSettings);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating email settings:', error);
+    throw error;
+  }
+};
+
  
