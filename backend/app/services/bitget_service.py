@@ -865,4 +865,235 @@ class BitgetService:
                 'success': False,
                 'message': str(e),
                 'data': None
+            }
+    
+    def get_plan_orders(self, plan_type=None):
+        """
+        미체결 Plan Order 조회
+        
+        Args:
+            plan_type: 'pos_profit', 'pos_loss', 'normal_plan', 'track_plan' 등
+        
+        Returns:
+            dict: Plan Order 목록
+        """
+        try:
+            endpoint = "/api/v2/mix/order/orders-plan-pending"
+            params = {
+                "symbol": "BTCUSDT",
+                "productType": "USDT-FUTURES"
+            }
+            
+            if plan_type:
+                params['planType'] = plan_type
+            
+            # GET 요청이므로 쿼리 파라미터로 전달
+            query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+            endpoint_with_params = f"{endpoint}?{query_string}"
+            
+            result = self._make_request("GET", endpoint_with_params)
+            return result
+            
+        except Exception as e:
+            print(f"Plan Order 조회 중 오류: {str(e)}")
+            return None
+    
+    def cancel_plan_order(self, order_id, plan_type):
+        """
+        Plan Order 취소
+        
+        Args:
+            order_id: 취소할 주문 ID
+            plan_type: 'pos_profit', 'pos_loss' 등
+        
+        Returns:
+            dict: 취소 결과
+        """
+        try:
+            endpoint = "/api/v2/mix/order/cancel-plan-order"
+            body = {
+                "symbol": "BTCUSDT",
+                "productType": "USDT-FUTURES",
+                "marginCoin": "USDT",
+                "orderId": order_id,
+                "planType": plan_type
+            }
+            
+            result = self._make_request("POST", endpoint, body=body)
+            return result
+            
+        except Exception as e:
+            print(f"Plan Order 취소 중 오류: {str(e)}")
+            return None
+
+    def update_position_tpsl(self, stop_loss_roe, take_profit_roe):
+        """
+        현재 포지션의 Take Profit과 Stop Loss 업데이트
+        
+        Args:
+            stop_loss_roe: Stop Loss 가격 변동률 % (AI가 제공한 값)
+            take_profit_roe: Take Profit 가격 변동률 % (AI가 제공한 값)
+        
+        Returns:
+            dict: 업데이트 결과
+        """
+        try:
+            print(f"\n=== Take Profit / Stop Loss 업데이트 ===")
+            print(f"Stop Loss ROE: {stop_loss_roe}%")
+            print(f"Take Profit ROE: {take_profit_roe}%")
+            
+            # 현재 포지션 정보 조회
+            positions = self.get_positions()
+            if not positions or 'data' not in positions:
+                return {
+                    'success': False,
+                    'message': "포지션 정보를 가져올 수 없습니다."
+                }
+            
+            # 활성 포지션 찾기
+            active_position = None
+            for pos in positions['data']:
+                if float(pos.get('total', 0)) > 0:
+                    active_position = pos
+                    break
+            
+            if not active_position:
+                return {
+                    'success': False,
+                    'message': "활성 포지션이 없습니다."
+                }
+            
+            # 현재가 조회
+            ticker = self.get_ticker()
+            if not ticker or 'data' not in ticker or not ticker['data']:
+                return {
+                    'success': False,
+                    'message': "현재가 조회 실패"
+                }
+            
+            current_price = float(ticker['data'][0]['lastPr'])
+            hold_side = active_position.get('holdSide')  # 'long' 또는 'short'
+            position_size = active_position.get('total')
+            
+            # 가격 계산
+            if hold_side == 'long':
+                stop_loss_price = round(current_price * (1 - (stop_loss_roe / 100)), 1)
+                take_profit_price = round(current_price * (1 + (take_profit_roe / 100)), 1)
+            else:  # short
+                stop_loss_price = round(current_price * (1 + (stop_loss_roe / 100)), 1)
+                take_profit_price = round(current_price * (1 - (take_profit_roe / 100)), 1)
+            
+            print(f"포지션 방향: {hold_side}")
+            print(f"포지션 크기: {position_size}")
+            print(f"현재가: {current_price}")
+            print(f"새 Stop Loss 가격: {stop_loss_price}")
+            print(f"새 Take Profit 가격: {take_profit_price}")
+            
+            # 1단계: 기존 TPSL Plan Order 조회 및 취소
+            print("\n[1단계] 기존 TPSL Plan Order 조회 중...")
+            
+            # Take Profit Plan Order 조회
+            tp_orders = self.get_plan_orders(plan_type='pos_profit')
+            sl_orders = self.get_plan_orders(plan_type='pos_loss')
+            
+            cancelled_count = 0
+            
+            # Take Profit Order 취소
+            if tp_orders and tp_orders.get('code') == '00000' and tp_orders.get('data'):
+                for order in tp_orders['data'].get('entrustedList', []):
+                    if order.get('symbol') == 'BTCUSDT':
+                        order_id = order.get('orderId')
+                        print(f"기존 Take Profit Order 취소: {order_id}")
+                        cancel_result = self.cancel_plan_order(order_id, 'pos_profit')
+                        if cancel_result and cancel_result.get('code') == '00000':
+                            cancelled_count += 1
+                            print(f"  ✅ 취소 성공")
+                        else:
+                            print(f"  ⚠️ 취소 실패: {cancel_result}")
+            
+            # Stop Loss Order 취소
+            if sl_orders and sl_orders.get('code') == '00000' and sl_orders.get('data'):
+                for order in sl_orders['data'].get('entrustedList', []):
+                    if order.get('symbol') == 'BTCUSDT':
+                        order_id = order.get('orderId')
+                        print(f"기존 Stop Loss Order 취소: {order_id}")
+                        cancel_result = self.cancel_plan_order(order_id, 'pos_loss')
+                        if cancel_result and cancel_result.get('code') == '00000':
+                            cancelled_count += 1
+                            print(f"  ✅ 취소 성공")
+                        else:
+                            print(f"  ⚠️ 취소 실패: {cancel_result}")
+            
+            print(f"기존 TPSL Order {cancelled_count}개 취소됨")
+            
+            # 2단계: 새로운 TPSL Plan Order 생성
+            print("\n[2단계] 새로운 TPSL Plan Order 생성 중...")
+            
+            endpoint_place = "/api/v2/mix/order/place-tpsl-order"
+            
+            # Take Profit 생성
+            tp_body = {
+                "symbol": "BTCUSDT",
+                "productType": "USDT-FUTURES",
+                "marginMode": "isolated",
+                "marginCoin": "USDT",
+                "planType": "pos_profit",
+                "triggerPrice": str(take_profit_price),
+                "holdSide": hold_side,
+                "size": str(position_size)
+            }
+            
+            print(f"Take Profit Order 생성 중... (가격: {take_profit_price})")
+            tp_result = self._make_request("POST", endpoint_place, body=tp_body)
+            
+            # Stop Loss 생성
+            sl_body = {
+                "symbol": "BTCUSDT",
+                "productType": "USDT-FUTURES",
+                "marginMode": "isolated",
+                "marginCoin": "USDT",
+                "planType": "pos_loss",
+                "triggerPrice": str(stop_loss_price),
+                "holdSide": hold_side,
+                "size": str(position_size)
+            }
+            
+            print(f"Stop Loss Order 생성 중... (가격: {stop_loss_price})")
+            sl_result = self._make_request("POST", endpoint_place, body=sl_body)
+            
+            print(f"\nTake Profit 설정 결과: {tp_result}")
+            print(f"Stop Loss 설정 결과: {sl_result}")
+            
+            # 결과 확인
+            tp_success = tp_result and tp_result.get('code') == '00000'
+            sl_success = sl_result and sl_result.get('code') == '00000'
+            
+            if tp_success and sl_success:
+                print("\n✅ Take Profit과 Stop Loss가 성공적으로 업데이트되었습니다.")
+                return {
+                    'success': True,
+                    'message': 'Take Profit과 Stop Loss가 업데이트되었습니다.',
+                    'take_profit_price': take_profit_price,
+                    'stop_loss_price': stop_loss_price,
+                    'cancelled_orders': cancelled_count
+                }
+            else:
+                error_msg = []
+                if not tp_success:
+                    error_msg.append(f"Take Profit 설정 실패: {tp_result.get('msg', 'Unknown error')}")
+                if not sl_success:
+                    error_msg.append(f"Stop Loss 설정 실패: {sl_result.get('msg', 'Unknown error')}")
+                
+                return {
+                    'success': False,
+                    'message': ' / '.join(error_msg)
+                }
+            
+        except Exception as e:
+            print(f"TPSL 업데이트 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'success': False,
+                'message': str(e)
             } 

@@ -2593,6 +2593,11 @@ class TradingAssistant:
                 email_data['additional_info'] = '\n'.join(additional_info_parts)
             
             # 이메일 전송
+            if not self.email_service.enabled:
+                print(f"\n⚠️  이메일 서비스가 비활성화되어 있습니다.")
+                print(f"   환경 변수 SENDER_EMAIL과 SENDER_PASSWORD를 확인하세요.")
+                return
+            
             result = self.email_service.send_analysis_email(
                 recipient_email=email_setting.email_address,
                 analysis_type=analysis_type,
@@ -4465,20 +4470,76 @@ class TradingAssistant:
             print(f"Action: {action}")
             print(f"Reason: {analysis_result.get('reason', 'No reason provided')}")
             
+            # 모니터링 분석 결과 이메일 전송
+            try:
+                position_info = self._get_position_info()
+                if position_info:
+                    email_position_info = {
+                        'side': current_position_side.upper(),
+                        'leverage': position_info.get('leverage', 'N/A'),
+                        'entry_price': position_info.get('entry_price', 0),
+                        'unrealized_pnl': position_info.get('unrealized_pnl', 0),
+                        'roe_percentage': position_info.get('roe', 0)
+                    }
+                    await self._send_analysis_email("모니터링분석", analysis_result, market_data, email_position_info)
+                else:
+                    await self._send_analysis_email("모니터링분석", analysis_result, market_data)
+            except Exception as email_error:
+                print(f"모니터링 이메일 전송 중 오류: {str(email_error)}")
+            
             # 포지션 방향과 분석 결과 비교
-            should_close = False
-            close_reason = ""
+            print(f"\n=== 모니터링 판단 로직 ===")
+            print(f"현재 포지션: {current_position_side}")
+            print(f"AI 분석 결과: {action}")
             
-            if current_position_side == 'long' and action == 'ENTER_SHORT':
-                should_close = True
-                close_reason = "롱 포지션 보유 중 숏 신호 발생"
-            elif current_position_side == 'short' and action == 'ENTER_LONG':
-                should_close = True
-                close_reason = "숏 포지션 보유 중 롱 신호 발생"
+            # 1. 같은 방향일 경우: Take Profit과 Stop Loss 업데이트
+            if (current_position_side == 'long' and action == 'ENTER_LONG') or \
+               (current_position_side == 'short' and action == 'ENTER_SHORT'):
+                print(f"\n✅ 같은 방향 신호 - Take Profit과 Stop Loss 업데이트")
+                
+                # AI 분석 결과에서 새로운 TP/SL 값 가져오기
+                new_take_profit_roe = analysis_result.get('take_profit_roe')
+                new_stop_loss_roe = analysis_result.get('stop_loss_roe')
+                
+                if new_take_profit_roe and new_stop_loss_roe:
+                    print(f"새 Take Profit ROE: {new_take_profit_roe}%")
+                    print(f"새 Stop Loss ROE: {new_stop_loss_roe}%")
+                    
+                    # TPSL 업데이트
+                    update_result = self.bitget.update_position_tpsl(
+                        stop_loss_roe=new_stop_loss_roe,
+                        take_profit_roe=new_take_profit_roe
+                    )
+                    
+                    if update_result['success']:
+                        print(f"✅ Take Profit과 Stop Loss가 업데이트되었습니다.")
+                        print(f"   TP 가격: {update_result.get('take_profit_price')}")
+                        print(f"   SL 가격: {update_result.get('stop_loss_price')}")
+                    else:
+                        print(f"❌ TPSL 업데이트 실패: {update_result.get('message')}")
+                else:
+                    print(f"⚠️ AI 분석 결과에 Take Profit 또는 Stop Loss 값이 없습니다.")
+                
+                # WebSocket으로 알림
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast({
+                        "type": "monitoring_result",
+                        "event_type": "MONITORING_TPSL_UPDATED",
+                        "data": {
+                            "action": action,
+                            "current_position": current_position_side,
+                            "new_take_profit_roe": new_take_profit_roe,
+                            "new_stop_loss_roe": new_stop_loss_roe,
+                            "analysis_result": analysis_result
+                        }
+                    })
             
-            # 반대 방향 신호일 경우만 청산
-            if should_close:
-                print(f"\n!!! 포지션 청산 필요: {close_reason} !!!")
+            # 2. 다른 방향일 경우: 100% 청산
+            elif (current_position_side == 'long' and action == 'ENTER_SHORT') or \
+                 (current_position_side == 'short' and action == 'ENTER_LONG'):
+                close_reason = f"{current_position_side.upper()} 포지션 보유 중 반대 방향({action}) 신호 발생"
+                print(f"\n❌ 반대 방향 신호 - 포지션 100% 청산")
+                print(f"청산 사유: {close_reason}")
                 
                 # 모든 모니터링 작업 취소
                 self._cancel_monitoring_jobs()
@@ -4500,51 +4561,13 @@ class TradingAssistant:
                             "analysis_result": analysis_result
                         }
                     })
-            else:
-                # HOLD 또는 같은 방향 신호인 경우 포지션 유지
-                print(f"\n포지션 유지: {action}")
                 
-                # 다음 모니터링 스케줄링 (expected_minutes 내에서 4시간 후)
-                next_monitoring_time = datetime.now() + timedelta(minutes=self.monitoring_interval)
-                
-                # expected_minutes 내에 있을 경우에만 다음 모니터링 스케줄
-                if hasattr(self, 'monitoring_end_time') and next_monitoring_time < self.monitoring_end_time:
-                    next_job_id = f"monitoring_{next_monitoring_time.strftime('%Y%m%d%H%M%S')}"
-                    
-                    print(f"\n다음 모니터링 예약: {next_monitoring_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                    print(f"Job ID: {next_job_id}")
-                    
-                    # 비동기 함수 래퍼
-                    def async_next_monitoring_wrapper(job_id, position_side, expected_minutes):
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(
-                                self._execute_monitoring_job(job_id, position_side, expected_minutes)
-                            )
-                        finally:
-                            loop.close()
-                    
-                    # 다음 모니터링 스케줄링
-                    self.scheduler.add_job(
-                        async_next_monitoring_wrapper,
-                        'date',
-                        run_date=next_monitoring_time,
-                        id=next_job_id,
-                        args=[next_job_id, original_position_side, expected_minutes],
-                        misfire_grace_time=300
-                    )
-                    
-                    # 활성 작업 목록에 추가
-                    self.active_jobs[next_job_id] = {
-                        "type": JobType.MONITORING,
-                        "scheduled_time": next_monitoring_time.isoformat(),
-                        "position_side": original_position_side,
-                        "expected_minutes": expected_minutes,
-                        "status": "scheduled"
-                    }
-                else:
-                    print(f"\nExpected minutes 종료. 더 이상 모니터링을 스케줄하지 않습니다.")
+                # 청산 후에는 다음 모니터링을 스케줄하지 않고 종료
+                return
+            
+            # 3. HOLD일 경우: 그대로 유지
+            else:  # action == 'HOLD'
+                print(f"\n⏸️ HOLD 신호 - 포지션 그대로 유지")
                 
                 # WebSocket으로 모니터링 결과 전송
                 if self.websocket_manager:
@@ -4554,10 +4577,54 @@ class TradingAssistant:
                         "data": {
                             "action": action,
                             "current_position": current_position_side,
-                            "analysis_result": analysis_result,
-                            "next_monitoring": next_monitoring_time.isoformat() if hasattr(self, 'monitoring_end_time') and next_monitoring_time < self.monitoring_end_time else None
+                            "analysis_result": analysis_result
                         }
                     })
+            
+            # 다음 모니터링 스케줄링 (청산이 아닌 경우 항상 실행)
+            print(f"\n=== 다음 모니터링 스케줄링 ===")
+            next_monitoring_time = datetime.now() + timedelta(minutes=self.monitoring_interval)
+            
+            # expected_minutes 내에 있을 경우에만 다음 모니터링 스케줄
+            if hasattr(self, 'monitoring_end_time') and next_monitoring_time < self.monitoring_end_time:
+                next_job_id = f"monitoring_{next_monitoring_time.strftime('%Y%m%d%H%M%S')}"
+                
+                print(f"다음 모니터링 예약: {next_monitoring_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                print(f"Job ID: {next_job_id}")
+                
+                # 비동기 함수 래퍼
+                def async_next_monitoring_wrapper(job_id, position_side, expected_minutes):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(
+                            self._execute_monitoring_job(job_id, position_side, expected_minutes)
+                        )
+                    finally:
+                        loop.close()
+                
+                # 다음 모니터링 스케줄링
+                self.scheduler.add_job(
+                    async_next_monitoring_wrapper,
+                    'date',
+                    run_date=next_monitoring_time,
+                    id=next_job_id,
+                    args=[next_job_id, original_position_side, expected_minutes],
+                    misfire_grace_time=300
+                )
+                
+                # 활성 작업 목록에 추가
+                self.active_jobs[next_job_id] = {
+                    "type": JobType.MONITORING,
+                    "scheduled_time": next_monitoring_time.isoformat(),
+                    "position_side": original_position_side,
+                    "expected_minutes": expected_minutes,
+                    "status": "scheduled"
+                }
+                
+                print(f"✅ 다음 모니터링이 예약되었습니다.")
+            else:
+                print(f"⏱️ Expected minutes 종료. 더 이상 모니터링을 스케줄하지 않습니다.")
             
         except Exception as e:
             print(f"모니터링 작업 실행 중 오류: {str(e)}")

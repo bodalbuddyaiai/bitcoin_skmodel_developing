@@ -34,7 +34,11 @@ class EmailService:
         
         # 디버깅: 이메일/비밀번호 길이 확인
         if self.enabled:
-            print(f"이메일 서비스 초기화 - 이메일 길이: {len(self.sender_email)}, 비밀번호 길이: {len(self.sender_password)}")
+            print(f"✅ 이메일 서비스 활성화됨 - 이메일 길이: {len(self.sender_email)}, 비밀번호 길이: {len(self.sender_password)}")
+        else:
+            print(f"❌ 이메일 서비스 비활성화됨 - SENDER_EMAIL과 SENDER_PASSWORD 환경 변수를 확인하세요.")
+            print(f"   SENDER_EMAIL 설정 여부: {bool(sender_email_raw)}")
+            print(f"   SENDER_PASSWORD 설정 여부: {bool(sender_password_raw)}")
         
     def _clean_text(self, text: str) -> str:
         """텍스트에서 문제가 될 수 있는 특수 문자 제거"""
