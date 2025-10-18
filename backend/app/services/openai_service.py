@@ -50,17 +50,11 @@ class OpenAIService:
 4시간봉 데이터:
 {json.dumps(market_data['candlesticks'].get('4H', [])[-50:], indent=2)}
 
-6시간봉 데이터:
-{json.dumps(market_data['candlesticks'].get('6H', [])[-50:], indent=2)}
-
 12시간봉 데이터:
 {json.dumps(market_data['candlesticks'].get('12H', [])[-50:], indent=2)}
 
 일봉 데이터:
 {json.dumps(market_data['candlesticks'].get('1D', [])[-30:], indent=2)}
-
-3일봉 데이터:
-{json.dumps(market_data['candlesticks'].get('3D', [])[-30:], indent=2)}
 
 주봉 데이터:
 {json.dumps(market_data['candlesticks'].get('1W', [])[-13:], indent=2)}
@@ -69,8 +63,8 @@ class OpenAIService:
 {json.dumps(market_data['candlesticks'].get('1M', [])[-4:], indent=2)}
 """
 
-        # 기술적 지표에서 모든 시간대 포함
-        all_timeframes = ['1m', '3m', '5m', '15m', '30m', '1H', '4H', '6H', '12H', '1D', '3D', '1W', '1M']
+        # 기술적 지표에서 모든 시간대 포함 (3m, 30m, 6H, 3D 제외 - 토큰 절약)
+        all_timeframes = ['1m', '5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M']
         technical_indicators = {
             timeframe: indicators 
             for timeframe, indicators in market_data['technical_indicators'].items()

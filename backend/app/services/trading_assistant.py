@@ -1115,19 +1115,19 @@ class TradingAssistant:
                 max_query_range = 90 * 24 * 60 * 60 * 1000  # 90일 (밀리초)
                 
                 timeframes = {
-                    "1m": {"start": current_time - min(30 * 24 * 60 * 60 * 1000, max_query_range), "limit": "990"},  # 1개월 제한, 최대 990개 (토큰 절약)
-                    "3m": {"start": current_time - min(30 * 24 * 60 * 60 * 1000, max_query_range), "limit": "790"},   # 1개월 제한, 790개
-                    "5m": {"start": current_time - min(30 * 24 * 60 * 60 * 1000, max_query_range), "limit": "590"},   # 1개월 제한, 590개
-                    "15m": {"start": current_time - min(52 * 24 * 60 * 60 * 1000, max_query_range), "limit": "490"},  # 52일 제한, 490개
-                    "30m": {"start": current_time - min(62 * 24 * 60 * 60 * 1000, max_query_range), "limit": "390"},  # 62일 제한, 390개
-                    "1H": {"start": current_time - min(83 * 24 * 60 * 60 * 1000, max_query_range), "limit": "290"},   # 83일 제한, 290개
-                    "4H": {"start": current_time - min(240 * 24 * 60 * 60 * 1000, max_query_range), "limit": "190"},  # 240일 제한(최대 90일), 190개
-                    "6H": {"start": current_time - min(360 * 24 * 60 * 60 * 1000, max_query_range), "limit": "140"},  # 360일 제한(최대 90일), 140개
-                    "12H": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "140"},  # 90일 제한, 140개
-                    "1D": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "80"},    # 90일 제한, 80개
-                    "3D": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "50"},    # 90일 제한, 50개
-                    "1W": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "15"},    # 90일 제한, 15개
-                    "1M": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "3"},    # 90일 제한, 3개
+                    # "1m": 제외 (토큰 절약 - 15m으로 충분)
+                    # "3m": 제외 (토큰 절약 - 3이 포함된 시간봉)
+                    # "5m": 제외 (토큰 절약 - 15m으로 충분)
+                    "15m": {"start": current_time - min(52 * 24 * 60 * 60 * 1000, max_query_range), "limit": "1000"}, # 52일 제한, API 최대 1000개
+                    # "30m": 제외 (토큰 절약 - 3이 포함된 시간봉)
+                    "1H": {"start": current_time - min(83 * 24 * 60 * 60 * 1000, max_query_range), "limit": "1000"},  # 83일 제한, API 최대 1000개
+                    "4H": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "540"},   # 90일 제약, 최대 540개 (90일 ÷ 4시간)
+                    # "6H": 제외 (토큰 절약 - 4H와 12H로 충분)
+                    "12H": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "180"},  # 90일 제약, 최대 180개 (90일 ÷ 12시간)
+                    "1D": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "90"},    # 90일 제약, 최대 90개
+                    # "3D": 제외 (토큰 절약 - 3이 포함된 시간봉)
+                    # "1W": 제외 (토큰 절약)
+                    # "1M": 제외 (토큰 절약)
                 }
                 
                 print("\n캔들스틱 데이터 수집 중...")

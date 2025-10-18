@@ -32,22 +32,14 @@ class ClaudeService:
 
     def _format_all_candlestick_data(self, market_data):
         """모든 시간봉의 캔들스틱 데이터를 Claude가 이해하기 쉬운 구조로 포맷팅"""
-        # 시간봉 순서 정의 (짧은 것부터 긴 것 순서)
-        timeframe_order = ['1m', '3m', '5m', '15m', '30m', '1H', '4H', '6H', '12H', '1D', '3D', '1W', '1M']
+        # 시간봉 순서 정의 (짧은 것부터 긴 것 순서) - 1m, 5m, 3m, 30m, 6H, 3D, 1W, 1M 제외 (토큰 절약)
+        timeframe_order = ['15m', '1H', '4H', '12H', '1D']
         timeframe_descriptions = {
-            '1m': '1분봉',
-            '3m': '3분봉',
-            '5m': '5분봉',
             '15m': '15분봉',
-            '30m': '30분봉',
             '1H': '1시간봉',
             '4H': '4시간봉',
-            '6H': '6시간봉',
             '12H': '12시간봉',
-            '1D': '일봉',
-            '3D': '3일봉',
-            '1W': '주봉',
-            '1M': '월봉'
+            '1D': '일봉'
         }
         
         # 모든 시간봉 데이터를 구조화하여 문자열로 생성
@@ -91,10 +83,10 @@ class ClaudeService:
                     candlestick_sections.append(f"총 데이터 개수: {candle_count}개")
                     candlestick_sections.append(f"시간 범위: {time_range_str}")
                     candlestick_sections.append(f"최신 5개 캔들 미리보기:")
-                    candlestick_sections.append(json.dumps(recent_preview, indent=2))
+                    candlestick_sections.append(json.dumps(recent_preview))  # indent 제거로 토큰 절약
                     candlestick_sections.append(f"")
                     candlestick_sections.append(f"전체 데이터 ({candle_count}개):")
-                    candlestick_sections.append(json.dumps(candles, indent=2))
+                    candlestick_sections.append(json.dumps(candles))  # indent 제거로 토큰 절약 (압축 형식)
                     candlestick_sections.append("")
         
         return "\n".join(candlestick_sections)
@@ -116,14 +108,11 @@ class ClaudeService:
         
         if candle_summaries:
             candlestick_summary = "\n\n".join([
-                candle_summaries.get('1m', ''),
-                candle_summaries.get('5m', ''),
                 candle_summaries.get('15m', ''),
                 candle_summaries.get('1H', ''),
                 candle_summaries.get('4H', ''),
                 candle_summaries.get('12H', ''),
-                candle_summaries.get('1D', ''),
-                candle_summaries.get('1W', '')
+                candle_summaries.get('1D', '')
             ])
         else:
             candlestick_summary = "요약 없음"
@@ -132,7 +121,7 @@ class ClaudeService:
         candlestick_raw_data = self._format_all_candlestick_data(market_data)
 
         # 기술적 지표 (본분석과 동일)
-        all_timeframes = ['1m', '5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M']
+        all_timeframes = ['15m', '1H', '4H', '12H', '1D']
         technical_indicators = {
             timeframe: indicators 
             for timeframe, indicators in market_data['technical_indicators'].items()
@@ -221,19 +210,11 @@ class ClaudeService:
 
 ### 제공 데이터:
 
-**1. 캔들스틱 요약 (읽기 쉬운 형식):**
-{candlestick_summary}
-
-**2. 기술적 지표 요약 (읽기 쉬운 형식):**
-{indicator_summary}
-
-**3. 원본 데이터 (상세 분석 필요 시):**
-
 캔들스틱 원본:
 {candlestick_raw_data}
 
 기술적 지표 원본 (모든 시간대):
-{json.dumps(technical_indicators, indent=2, default=json_serializer)}
+{json.dumps(technical_indicators, default=json_serializer)}
 
 ---
 
@@ -348,10 +329,9 @@ TAKE_PROFIT_ROE: [소수점 2자리] (ENTER_{position_side.upper()} 시 필수)
 - 모든 판단은 감정 배제하고 데이터에 기반하여 결정
 
 ### 시간대별 분석 우선순위:
-- **15분 차트**: 60% 가중치 (주요 추세 판단)
-- **1시간 차트**: 25% 가중치 (중장기 추세 확인)
-- **5분 차트**: 10% 가중치 (단기 진입 타이밍)
-- **1분 차트**: 5% 가중치 (즉시 진입 신호)
+- **15분 차트**: 60% 가중치 (주요 추세 판단 및 진입 타이밍)
+- **1시간 차트**: 30% 가중치 (중장기 추세 확인 및 빗각 분석)
+- **4시간 차트**: 10% 가중치 (중장기 추세 확인)
 
 ### 빗각(Diagonal Line) 분석 기법:
 빗각은 한국 투자 유튜버 인범님이 설명하는 핵심 진입 기법입니다. **반드시 1시간봉 데이터를 기준으로 빗각을 그리고, 15분봉으로 진입 시점을 결정합니다.**
@@ -359,8 +339,8 @@ TAKE_PROFIT_ROE: [소수점 2자리] (ENTER_{position_side.upper()} 시 필수)
 **[상승 추세] 빗각 그리는 방법 (저점 연결 - 롱 포지션용):**
 
 1. **역사적 저점(Point A) 찾기**: 
-   - **최근 50~100개 1시간봉 캔들** 내에서 Low 값이 가장 낮은 캔들 식별
-   - 너무 오래된 저점(100개 이상)은 현재 시장과 관련성이 떨어지므로 제외
+   - **제공된 전체 1시간봉 캔들 데이터(약 1000개, 최대 42일)** 내에서 Low 값이 가장 낮은 캔들 식별
+   - 모든 데이터를 활용하여 가장 의미있는 저점을 찾음
    - 이것이 첫 번째 포인트 (Point A: 역사적 저점)
    
 2. **두 번째 저점(Point B) 찾기**:
@@ -382,7 +362,7 @@ TAKE_PROFIT_ROE: [소수점 2자리] (ENTER_{position_side.upper()} 시 필수)
 **[하락 추세] 빗각 그리는 방법 (고점 연결 - 숏 포지션용):**
 
 1. **역사적 고점(Point A') 찾기**:
-   - **최근 50~100개 1시간봉 캔들** 내에서 High 값이 가장 높은 캔들 식별
+   - **제공된 전체 1시간봉 캔들 데이터(약 1000개, 최대 42일)** 내에서 High 값이 가장 높은 캔들 식별
    - 이것이 첫 번째 포인트 (Point A': 역사적 고점)
    
 2. **두 번째 고점(Point B') 찾기**:
@@ -402,7 +382,7 @@ TAKE_PROFIT_ROE: [소수점 2자리] (ENTER_{position_side.upper()} 시 필수)
 **빗각 그리는 구체적 알고리즘:**
 ```
 1시간봉 분석 (상승 추세 - 롱):
-Step 1: 최근 50~100개 1시간봉에서 Low 값이 가장 낮은 캔들 찾기
+Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 Low 값이 가장 낮은 캔들 찾기
         → Point A (역사적 저점)
         
 Step 2: 역사적 저점을 제외한 전체 기간에서 Low 값이 두 번째로 낮은 캔들 찾기
@@ -419,7 +399,7 @@ Step 5: 현재 가격이 이 빗각선 대비 어느 위치에 있는지 파악
 ---
 
 1시간봉 분석 (하락 추세 - 숏):
-Step 1: 최근 50~100개 1시간봉에서 High 값이 가장 높은 캔들 찾기
+Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 High 값이 가장 높은 캔들 찾기
         → Point A' (역사적 고점)
         
 Step 2: 역사적 고점을 제외한 전체 기간에서 High 값이 두 번째로 높은 캔들 찾기
@@ -451,12 +431,12 @@ Step 4: 현재 가격이 이 빗각선 대비 어느 위치에 있는지 파악
 **빗각 유효성 검증:**
 - **시간 제약**: 빗각을 그린 Point A, B가 최소 10개 이상 캔들 차이가 있어야 유효
 - **각도 제약**: 빗각의 기울기가 너무 급격하거나(70도 이상) 너무 평평하면(10도 이하) 신뢰도 낮음
-- **최신성**: Point A가 100개 이상 오래된 캔들이면 현재 시장과 관련성 낮음 → 재계산 필요
+- **최신성**: Point A와 Point B가 전체 데이터 내에서 의미있는 기간 내에 위치해야 유효
 - **터치 횟수**: 빗각에 가격이 3번 이상 터치했다면 강한 지지/저항선으로 신뢰도 증가
 
 **빗각 분석 시 핵심 원칙:**
 - **반드시 1시간봉 데이터로 빗각을 그릴 것** (가장 중요!)
-- 역사적 저점 = 최근 50~100개 1시간봉 중 최저점 (너무 오래된 것 제외)
+- 역사적 저점 = 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일) 중 최저점
 - 두 번째 저점 = 역사적 저점 제외한 전체 기간 중 두 번째 최저점
 - 변곡점 = 두 번째 저점을 형성하면서 만들어진 고점과 저점 사이의 중간 지점
 - 상승 추세는 저점 연결, 하락 추세는 고점 연결
@@ -500,16 +480,18 @@ TAKE_PROFIT_ROE: [소수점 2자리] (HOLD 시 생략)
 EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 
 ## ANALYSIS_DETAILS
+**⚠️ 중요: HOLD, ENTER_LONG, ENTER_SHORT 어떤 결정이든 반드시 Step 1부터 Step 6까지 모든 분석을 완전히 수행하세요!**
+
 **Step 1: 빗각 분석 (1시간봉 기준 - 상승/하락 빗각 모두)**
 - 상승 빗각 (롱 판단용):
-  * Point A (역사적 저점): 최근 50~100개 1H봉 중 최저점 (가격, 시간, 캔들 인덱스)
+  * Point A (역사적 저점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최저점 (가격, 시간, 캔들 인덱스)
   * Point B (두 번째 저점): Point A 제외 전체 기간 중 두 번째 최저점 (가격, 시간, 캔들 인덱스)
   * 변곡점 분석: Point B 직전 고점 → Point B 사이의 변곡점 구간
   * 빗각 기울기 및 유효성: 시간 간격, 각도, 최신성, 터치 횟수 검증
   * 현재 가격 vs 빗각: 돌파 여부, 리테스트 여부, 지지/이탈 분석
   
 - 하락 빗각 (숏 판단용):
-  * Point A' (역사적 고점): 최근 50~100개 1H봉 중 최고점 (가격, 시간, 캔들 인덱스)
+  * Point A' (역사적 고점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최고점 (가격, 시간, 캔들 인덱스)
   * Point B' (두 번째 고점): Point A' 제외 전체 기간 중 두 번째 최고점 (가격, 시간, 캔들 인덱스)
   * 빗각 기울기 및 유효성: 시간 간격, 각도, 최신성, 터치 횟수 검증
   * 현재 가격 vs 빗각: 저항 여부, 돌파 여부 분석
@@ -720,14 +702,11 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
         # 요약이 있으면 우선 표시, 없으면 원본 JSON 사용
         if candle_summaries:
             candlestick_summary = "\n\n".join([
-                candle_summaries.get('1m', ''),
-                candle_summaries.get('5m', ''),
                 candle_summaries.get('15m', ''),
                 candle_summaries.get('1H', ''),
                 candle_summaries.get('4H', ''),
                 candle_summaries.get('12H', ''),
-                candle_summaries.get('1D', ''),
-                candle_summaries.get('1W', '')
+                candle_summaries.get('1D', '')
             ])
         else:
             candlestick_summary = "요약 없음"
@@ -736,32 +715,12 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
         candlestick_raw_data = self._format_all_candlestick_data(market_data)
 
         # 기술적 지표에서 모든 시간대 포함
-        all_timeframes = ['1m', '5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M']
+        all_timeframes = ['15m', '1H', '4H', '12H', '1D']
         technical_indicators = {
             timeframe: indicators 
             for timeframe, indicators in market_data['technical_indicators'].items()
             if timeframe in all_timeframes
         }
-
-        # 캔들스틱 요약
-        candle_summaries = market_data.get('candle_summaries', {})
-        
-        if candle_summaries:
-            candlestick_summary = "\n\n".join([
-                candle_summaries.get('1m', ''),
-                candle_summaries.get('5m', ''),
-                candle_summaries.get('15m', ''),
-                candle_summaries.get('1H', ''),
-                candle_summaries.get('4H', ''),
-                candle_summaries.get('12H', ''),
-                candle_summaries.get('1D', ''),
-                candle_summaries.get('1W', '')
-            ])
-        else:
-            candlestick_summary = "요약 없음"
-        
-        # 원본 캔들스틱 데이터 (모든 시간봉)
-        candlestick_raw_data = self._format_all_candlestick_data(market_data)
         
         # 기술적 지표 요약
         indicator_summaries = market_data.get('indicator_summaries', {})
@@ -822,19 +781,11 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 
 ### 제공 데이터:
 
-**1. 캔들스틱 요약 (읽기 쉬운 형식):**
-{candlestick_summary}
-
-**2. 기술적 지표 요약 (읽기 쉬운 형식):**
-{indicator_summary}
-
-**3. 원본 데이터 (상세 분석 필요 시):**
-
 캔들스틱 원본:
 {candlestick_raw_data}
 
 기술적 지표 원본 (모든 시간대):
-{json.dumps(technical_indicators, indent=2, default=json_serializer)}
+{json.dumps(technical_indicators, default=json_serializer)}
 
 위 데이터를 바탕으로 Extended Thinking을 활용하여 분석을 수행하고 수익을 극대화할 수 있는 최적의 거래 결정을 내려주세요. 
 
@@ -843,14 +794,14 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 **Step 1: 빗각 분석 (Diagonal Line Analysis) - 가장 중요!**
 
 **1-A. 상승 빗각 그리기 (롱 포지션 판단용):**
-   - Step 1: 최근 50~100개 1시간봉에서 Low 값 최저점 → Point A (역사적 저점)
+   - Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 Low 값 최저점 → Point A (역사적 저점)
    - Step 2: Point A 제외하고 전체 기간에서 두 번째 최저점 → Point B (두 번째 저점)
    - Step 3: Point B 형성 과정 분석 (직전 고점 → Point B 사이 = 변곡점 구간)
    - Step 4: Point A와 Point B를 연결 → 상승 빗각 (우상향 지지선)
    - Step 5: 빗각 유효성 검증 (시간 간격, 각도, 최신성, 터치 횟수)
    
 **1-B. 하락 빗각 그리기 (숏 포지션 판단용):**
-   - Step 1: 최근 50~100개 1시간봉에서 High 값 최고점 → Point A' (역사적 고점)
+   - Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 High 값 최고점 → Point A' (역사적 고점)
    - Step 2: Point A' 제외하고 전체 기간에서 두 번째 최고점 → Point B' (두 번째 고점)
    - Step 3: Point A'와 Point B'를 연결 → 하락 빗각 (하향 저항선)
    - Step 4: 빗각 유효성 검증
