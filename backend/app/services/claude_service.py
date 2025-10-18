@@ -30,6 +30,75 @@ class ClaudeService:
         else:
             print(f"알 수 없는 Claude 모델 타입: {model_type}, 기본값 유지")
 
+    def _format_all_candlestick_data(self, market_data):
+        """모든 시간봉의 캔들스틱 데이터를 Claude가 이해하기 쉬운 구조로 포맷팅"""
+        # 시간봉 순서 정의 (짧은 것부터 긴 것 순서)
+        timeframe_order = ['1m', '3m', '5m', '15m', '30m', '1H', '4H', '6H', '12H', '1D', '3D', '1W', '1M']
+        timeframe_descriptions = {
+            '1m': '1분봉',
+            '3m': '3분봉',
+            '5m': '5분봉',
+            '15m': '15분봉',
+            '30m': '30분봉',
+            '1H': '1시간봉',
+            '4H': '4시간봉',
+            '6H': '6시간봉',
+            '12H': '12시간봉',
+            '1D': '일봉',
+            '3D': '3일봉',
+            '1W': '주봉',
+            '1M': '월봉'
+        }
+        
+        # 모든 시간봉 데이터를 구조화하여 문자열로 생성
+        candlestick_sections = []
+        candlestick_sections.append("[캔들스틱 원본 데이터 - 모든 시간봉]")
+        candlestick_sections.append("")
+        candlestick_sections.append("⚠️ 데이터 구조 설명:")
+        candlestick_sections.append("- 각 캔들: {timestamp, open, high, low, close, volume}")
+        candlestick_sections.append("- timestamp: 밀리초 단위 Unix 시간")
+        candlestick_sections.append("- 최신 데이터가 배열의 마지막에 위치")
+        candlestick_sections.append("- 빗각 분석 시 충분한 과거 데이터를 활용하세요")
+        candlestick_sections.append("")
+        
+        for timeframe in timeframe_order:
+            if timeframe in market_data.get('candlesticks', {}):
+                candles = market_data['candlesticks'][timeframe]
+                if candles and len(candles) > 0:
+                    description = timeframe_descriptions.get(timeframe, timeframe)
+                    candle_count = len(candles)
+                    
+                    # 시간 범위 계산
+                    if candle_count >= 2:
+                        first_timestamp = candles[0].get('timestamp', 0)
+                        last_timestamp = candles[-1].get('timestamp', 0)
+                        time_range_hours = (last_timestamp - first_timestamp) / (1000 * 60 * 60)
+                        time_range_days = time_range_hours / 24
+                        
+                        if time_range_days >= 1:
+                            time_range_str = f"약 {time_range_days:.1f}일"
+                        else:
+                            time_range_str = f"약 {time_range_hours:.1f}시간"
+                    else:
+                        time_range_str = "N/A"
+                    
+                    # 최신 5개 캔들 미리보기 (데이터 확인용)
+                    recent_preview = candles[-5:] if len(candles) >= 5 else candles
+                    
+                    candlestick_sections.append(f"{'='*80}")
+                    candlestick_sections.append(f"📊 {description} ({timeframe})")
+                    candlestick_sections.append(f"{'='*80}")
+                    candlestick_sections.append(f"총 데이터 개수: {candle_count}개")
+                    candlestick_sections.append(f"시간 범위: {time_range_str}")
+                    candlestick_sections.append(f"최신 5개 캔들 미리보기:")
+                    candlestick_sections.append(json.dumps(recent_preview, indent=2))
+                    candlestick_sections.append(f"")
+                    candlestick_sections.append(f"전체 데이터 ({candle_count}개):")
+                    candlestick_sections.append(json.dumps(candles, indent=2))
+                    candlestick_sections.append("")
+        
+        return "\n".join(candlestick_sections)
+
     def _create_monitoring_prompt(self, market_data, position_info, entry_analysis_reason=""):
         """모니터링용 프롬프트 생성 - 본분석과 동일한 데이터, 추가 맥락만 포함"""
         # JSON 직렬화 헬퍼 함수
@@ -59,19 +128,8 @@ class ClaudeService:
         else:
             candlestick_summary = "요약 없음"
         
-        # 원본 캔들스틱 데이터 (참고용)
-        candlestick_raw_data = f"""
-[참고용 원본 데이터 - 주요 시간대만]
-
-1시간봉 원본 (최근 12개):
-{json.dumps(market_data['candlesticks'].get('1H', [])[-12:], indent=2)}
-
-4시간봉 원본 (최근 6개):
-{json.dumps(market_data['candlesticks'].get('4H', [])[-6:], indent=2)}
-
-일봉 원본 (최근 7개):
-{json.dumps(market_data['candlesticks'].get('1D', [])[-7:], indent=2)}
-"""
+        # 원본 캔들스틱 데이터 (모든 시간봉)
+        candlestick_raw_data = self._format_all_candlestick_data(market_data)
 
         # 기술적 지표 (본분석과 동일)
         all_timeframes = ['1m', '5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M']
@@ -674,19 +732,8 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
         else:
             candlestick_summary = "요약 없음"
         
-        # 원본 캔들스틱 데이터 (참고용, 축소)
-        candlestick_raw_data = f"""
-[참고용 원본 데이터 - 주요 시간대만]
-
-1시간봉 원본 (최근 12개):
-{json.dumps(market_data['candlesticks'].get('1H', [])[-12:], indent=2)}
-
-4시간봉 원본 (최근 6개):
-{json.dumps(market_data['candlesticks'].get('4H', [])[-6:], indent=2)}
-
-일봉 원본 (최근 7개):
-{json.dumps(market_data['candlesticks'].get('1D', [])[-7:], indent=2)}
-"""
+        # 원본 캔들스틱 데이터 (모든 시간봉)
+        candlestick_raw_data = self._format_all_candlestick_data(market_data)
 
         # 기술적 지표에서 모든 시간대 포함
         all_timeframes = ['1m', '5m', '15m', '1H', '4H', '12H', '1D', '1W', '1M']
@@ -713,19 +760,8 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
         else:
             candlestick_summary = "요약 없음"
         
-        # 원본 캔들스틱 데이터 (참고용, 축소)
-        candlestick_raw_data = f"""
-[참고용 원본 데이터 - 주요 시간대만]
-
-1시간봉 원본 (최근 12개):
-{json.dumps(market_data['candlesticks'].get('1H', [])[-12:], indent=2)}
-
-4시간봉 원본 (최근 6개):
-{json.dumps(market_data['candlesticks'].get('4H', [])[-6:], indent=2)}
-
-일봉 원본 (최근 7개):
-{json.dumps(market_data['candlesticks'].get('1D', [])[-7:], indent=2)}
-"""
+        # 원본 캔들스틱 데이터 (모든 시간봉)
+        candlestick_raw_data = self._format_all_candlestick_data(market_data)
         
         # 기술적 지표 요약
         indicator_summaries = market_data.get('indicator_summaries', {})

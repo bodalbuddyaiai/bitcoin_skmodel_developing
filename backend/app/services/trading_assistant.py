@@ -4534,35 +4534,128 @@ class TradingAssistant:
                         }
                     })
             
-            # 2. 다른 방향일 경우: 100% 청산
+            # 2. 다른 방향일 경우: 100% 청산 후 반대 포지션 진입
             elif (current_position_side == 'long' and action == 'ENTER_SHORT') or \
                  (current_position_side == 'short' and action == 'ENTER_LONG'):
                 close_reason = f"{current_position_side.upper()} 포지션 보유 중 반대 방향({action}) 신호 발생"
-                print(f"\n❌ 반대 방향 신호 - 포지션 100% 청산")
+                print(f"\n🔄 반대 방향 신호 - 포지션 100% 청산 후 {action} 진입")
                 print(f"청산 사유: {close_reason}")
                 
                 # 모든 모니터링 작업 취소
                 self._cancel_monitoring_jobs()
                 
-                # 강제 청산 실행
-                await self._force_close_position_with_reschedule(
-                    job_id=f"monitoring_close_{int(time.time())}",
-                    reason=close_reason
-                )
+                # 1단계: 현재 포지션 청산
+                print("\n[1단계] 현재 포지션 청산 중...")
+                close_result = self.bitget.close_positions(hold_side=current_position_side)
+                print(f"청산 결과: {close_result}")
                 
-                # WebSocket으로 알림
-                if self.websocket_manager:
-                    await self.websocket_manager.broadcast({
-                        "type": "monitoring_result",
-                        "event_type": "MONITORING_CLOSE",
-                        "data": {
-                            "action": action,
-                            "reason": close_reason,
-                            "analysis_result": analysis_result
-                        }
-                    })
+                # 청산 성공 확인
+                is_close_success = close_result.get('success', False)
                 
-                # 청산 후에는 다음 모니터링을 스케줄하지 않고 종료
+                if is_close_success:
+                    print("✅ 포지션 청산 완료")
+                    
+                    # 모니터링 중지
+                    self._stop_monitoring()
+                    
+                    # 청산 확인을 위한 짧은 대기
+                    await asyncio.sleep(2)
+                    
+                    # 청산 확인
+                    verification_positions = self.bitget.get_positions()
+                    current_position_size = 0
+                    if verification_positions and 'data' in verification_positions:
+                        for pos in verification_positions['data']:
+                            current_position_size += float(pos.get('total', 0))
+                    
+                    if current_position_size == 0:
+                        print("✅ 포지션 청산 확인 완료")
+                        
+                        # 2단계: 반대 방향으로 새 포지션 진입
+                        print(f"\n[2단계] {action} 포지션 진입 중...")
+                        
+                        # AI 분석 결과에서 진입 파라미터 추출
+                        position_size = analysis_result.get('position_size', 0.5)
+                        leverage = analysis_result.get('leverage', 50)
+                        stop_loss_roe = analysis_result.get('stop_loss_roe', 2.0)
+                        take_profit_roe = analysis_result.get('take_profit_roe', 5.0)
+                        expected_minutes = analysis_result.get('expected_minutes', 480)
+                        
+                        print(f"진입 설정:")
+                        print(f"  - 방향: {action}")
+                        print(f"  - 포지션 크기: {position_size}")
+                        print(f"  - 레버리지: {leverage}x")
+                        print(f"  - Stop Loss ROE: {stop_loss_roe}%")
+                        print(f"  - Take Profit ROE: {take_profit_roe}%")
+                        print(f"  - 예상 보유 시간: {expected_minutes}분")
+                        
+                        try:
+                            # 새 포지션 진입
+                            trade_result = await self._execute_trade(
+                                action=action,
+                                position_size=position_size,
+                                leverage=leverage,
+                                stop_loss_roe=stop_loss_roe,
+                                take_profit_roe=take_profit_roe
+                            )
+                            
+                            if trade_result.get('success'):
+                                print(f"✅ {action} 포지션 진입 완료")
+                                
+                                # 진입 분석 결과 저장 (새 포지션에 대한 근거)
+                                position_side = 'long' if action == 'ENTER_LONG' else 'short'
+                                self._entry_analysis_reason = analysis_result.get('reason', 'N/A')
+                                self._entry_analysis_time = datetime.now().isoformat()
+                                
+                                print(f"\n=== 새 포지션 진입 분석 결과 저장 ===")
+                                print(f"진입 시간: {self._entry_analysis_time}")
+                                print(f"진입 근거 길이: {len(self._entry_analysis_reason)} 문자")
+                                
+                                # 새 포지션에 대한 모니터링 작업 스케줄링
+                                self._schedule_monitoring_jobs(expected_minutes, position_side)
+                                
+                                # WebSocket으로 알림
+                                if self.websocket_manager:
+                                    await self.websocket_manager.broadcast({
+                                        "type": "monitoring_result",
+                                        "event_type": "MONITORING_REVERSE_ENTRY",
+                                        "data": {
+                                            "previous_position": current_position_side,
+                                            "new_action": action,
+                                            "reason": close_reason,
+                                            "trade_result": trade_result,
+                                            "analysis_result": analysis_result
+                                        }
+                                    })
+                            else:
+                                print(f"❌ {action} 포지션 진입 실패: {trade_result.get('message', 'Unknown error')}")
+                                
+                                # 진입 실패 시 60분 후 재분석 예약
+                                reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                                next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
+                                await self._schedule_next_analysis(next_analysis_time)
+                                
+                        except Exception as entry_error:
+                            print(f"❌ 포지션 진입 중 오류: {str(entry_error)}")
+                            import traceback
+                            traceback.print_exc()
+                            
+                            # 오류 발생 시 60분 후 재분석 예약
+                            await self._schedule_next_analysis_on_error(f"반대 포지션 진입 중 오류: {str(entry_error)}")
+                    else:
+                        print(f"⚠️ 포지션이 완전히 청산되지 않음 (현재 크기: {current_position_size})")
+                        # 60분 후 재분석 예약
+                        reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                        next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
+                        await self._schedule_next_analysis(next_analysis_time)
+                else:
+                    print(f"❌ 포지션 청산 실패: {close_result.get('message', 'Unknown error')}")
+                    # 청산 실패 시 60분 후 재분석 예약
+                    reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                    next_analysis_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
+                    await self._schedule_next_analysis(next_analysis_time)
+                
+                # 청산 및 진입 처리 완료 후 종료 (다음 모니터링은 새 포지션에 대해 스케줄됨)
                 return
             
             # 3. HOLD일 경우: 그대로 유지
