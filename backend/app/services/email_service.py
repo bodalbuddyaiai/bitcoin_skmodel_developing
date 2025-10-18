@@ -4,6 +4,8 @@ from email.mime.multipart import MIMEMultipart
 from email.header import Header
 from datetime import datetime
 import os
+import html
+import re
 from typing import Optional
 
 class EmailService:
@@ -56,6 +58,51 @@ class EmailService:
         
         return text
     
+    def _markdown_to_html(self, text: str) -> str:
+        """간단한 마크다운을 HTML로 변환"""
+        if not text:
+            return text
+        
+        # HTML 특수 문자 이스케이프 (가장 먼저 수행)
+        text = html.escape(text)
+        
+        # 줄바꿈을 <br>로 변환하기 전에 마크다운 처리
+        lines = text.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            # 헤더 (### Title)
+            if line.startswith('###'):
+                line = f'<h3 style="color: #667eea; margin: 15px 0 10px 0;">{line[3:].strip()}</h3>'
+            elif line.startswith('##'):
+                line = f'<h2 style="color: #667eea; margin: 20px 0 10px 0;">{line[2:].strip()}</h2>'
+            elif line.startswith('#'):
+                line = f'<h1 style="color: #667eea; margin: 20px 0 15px 0;">{line[1:].strip()}</h1>'
+            else:
+                # 볼드 (**text** or __text__)
+                line = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', line)
+                line = re.sub(r'__(.+?)__', r'<strong>\1</strong>', line)
+                
+                # 이탤릭 (*text* or _text_)
+                line = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<em>\1</em>', line)
+                line = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'<em>\1</em>', line)
+                
+                # 리스트 (- item or * item)
+                if line.strip().startswith(('- ', '* ', '+ ')):
+                    line = f'<li style="margin-left: 20px;">{line.strip()[2:]}</li>'
+                
+                # 체크박스
+                line = line.replace('✅', '<span style="color: #28a745; font-weight: bold;">✅</span>')
+                line = line.replace('❌', '<span style="color: #dc3545; font-weight: bold;">❌</span>')
+                line = line.replace('⚠️', '<span style="color: #ffc107; font-weight: bold;">⚠️</span>')
+                
+            processed_lines.append(line)
+        
+        # 줄바꿈을 <br>로 변환
+        result = '<br>'.join(processed_lines)
+        
+        return result
+    
     def send_analysis_email(
         self, 
         recipient_email: str, 
@@ -79,12 +126,6 @@ class EmailService:
         if not recipient_email:
             return {"success": False, "error": "수신자 이메일이 설정되지 않았습니다."}
         
-        # 분석 데이터의 텍스트 필드를 사전 정리
-        if 'ai_analysis' in analysis_data:
-            analysis_data['ai_analysis'] = self._clean_text(analysis_data['ai_analysis'])
-        if 'additional_info' in analysis_data:
-            analysis_data['additional_info'] = self._clean_text(analysis_data['additional_info'])
-        
         try:
             # 이메일 내용 구성
             subject = f"[비트코인 자동매매] {analysis_type} 결과 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
@@ -103,11 +144,8 @@ class EmailService:
             # Subject는 명시적으로 인코딩
             message["Subject"] = str(Header(subject, "utf-8"))
             
-            # HTML 본문 정리
-            html_content_clean = self._clean_text(html_content)
-            
-            # HTML 파트 추가
-            html_part = MIMEText(html_content_clean, "html", "utf-8")
+            # HTML 파트 추가 (이미 _markdown_to_html에서 처리됨)
+            html_part = MIMEText(html_content, "html", "utf-8")
             message.attach(html_part)
             
             # SMTP 서버 연결 및 전송
@@ -289,23 +327,27 @@ class EmailService:
             """
         
         # AI 분석 내용
-        if 'ai_analysis' in analysis_data:
+        if 'ai_analysis' in analysis_data and analysis_data['ai_analysis']:
+            # 마크다운을 HTML로 변환 (HTML 특수 문자 이스케이프 포함)
+            ai_analysis_html = self._markdown_to_html(analysis_data['ai_analysis'])
             html += f"""
                     <div class="section">
                         <div class="section-title">🧠 AI 분석</div>
-                        <div style="white-space: pre-wrap; line-height: 1.8;">
-                            {analysis_data['ai_analysis']}
+                        <div style="line-height: 1.8; font-size: 14px;">
+                            {ai_analysis_html}
                         </div>
                     </div>
             """
         
         # 추가 정보
-        if 'additional_info' in analysis_data:
+        if 'additional_info' in analysis_data and analysis_data['additional_info']:
+            # 마크다운을 HTML로 변환
+            additional_info_html = self._markdown_to_html(analysis_data['additional_info'])
             html += f"""
                     <div class="section">
                         <div class="section-title">ℹ️ 추가 정보</div>
-                        <div style="white-space: pre-wrap;">
-                            {analysis_data['additional_info']}
+                        <div style="line-height: 1.6; font-size: 14px;">
+                            {additional_info_html}
                         </div>
                     </div>
             """
