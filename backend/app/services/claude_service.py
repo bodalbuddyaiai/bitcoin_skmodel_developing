@@ -42,13 +42,26 @@ class ClaudeService:
             '1D': '일봉'
         }
         
+        # 현재 시간 (한국 시간 KST = UTC+9)
+        from datetime import timedelta
+        current_time_utc = datetime.now()
+        current_time_kst = current_time_utc + timedelta(hours=9)
+        
         # 모든 시간봉 데이터를 구조화하여 문자열로 생성
         candlestick_sections = []
         candlestick_sections.append("[캔들스틱 원본 데이터 - 모든 시간봉]")
         candlestick_sections.append("")
         candlestick_sections.append("⚠️ 데이터 구조 설명:")
         candlestick_sections.append("- 각 캔들: {timestamp, open, high, low, close, volume}")
-        candlestick_sections.append("- timestamp: 밀리초 단위 Unix 시간")
+        candlestick_sections.append("- timestamp: 밀리초(ms) 단위 Unix 시간 (1970-01-01 00:00:00 UTC부터 경과 시간)")
+        candlestick_sections.append("")
+        candlestick_sections.append("🚨 **타임스탬프 변환 방법 (매우 중요!):**")
+        candlestick_sections.append("1. timestamp는 밀리초(milliseconds) 단위입니다")
+        candlestick_sections.append("2. 초(seconds)로 변환: timestamp / 1000")
+        candlestick_sections.append("3. UTC 기준 날짜로 변환 후 +9시간 (한국 시간 KST)")
+        candlestick_sections.append("4. 예시: timestamp=1728619200000 → 1728619200초 → 2024-10-11 06:00:00 (KST)")
+        candlestick_sections.append(f"5. 현재 시간: {current_time_kst.strftime('%Y-%m-%d %H:%M:%S')} (KST)")
+        candlestick_sections.append("")
         candlestick_sections.append("- 최신 데이터가 배열의 마지막에 위치")
         candlestick_sections.append("- 빗각 분석 시 충분한 과거 데이터를 활용하세요")
         candlestick_sections.append("")
@@ -60,7 +73,7 @@ class ClaudeService:
                     description = timeframe_descriptions.get(timeframe, timeframe)
                     candle_count = len(candles)
                     
-                    # 시간 범위 계산
+                    # 시간 범위 계산 및 타임스탬프 예시
                     if candle_count >= 2:
                         first_timestamp = candles[0].get('timestamp', 0)
                         last_timestamp = candles[-1].get('timestamp', 0)
@@ -71,8 +84,17 @@ class ClaudeService:
                             time_range_str = f"약 {time_range_days:.1f}일"
                         else:
                             time_range_str = f"약 {time_range_hours:.1f}시간"
+                        
+                        # 첫 번째와 마지막 캔들의 시간 변환 예시
+                        from datetime import timedelta
+                        first_dt = datetime.fromtimestamp(first_timestamp / 1000) + timedelta(hours=9)
+                        last_dt = datetime.fromtimestamp(last_timestamp / 1000) + timedelta(hours=9)
+                        first_time_str = f"{first_timestamp} → {first_dt.strftime('%Y-%m-%d %H:%M')}"
+                        last_time_str = f"{last_timestamp} → {last_dt.strftime('%Y-%m-%d %H:%M')}"
                     else:
                         time_range_str = "N/A"
+                        first_time_str = "N/A"
+                        last_time_str = "N/A"
                     
                     # 최신 5개 캔들 미리보기 (데이터 확인용)
                     recent_preview = candles[-5:] if len(candles) >= 5 else candles
@@ -82,6 +104,9 @@ class ClaudeService:
                     candlestick_sections.append(f"{'='*80}")
                     candlestick_sections.append(f"총 데이터 개수: {candle_count}개")
                     candlestick_sections.append(f"시간 범위: {time_range_str}")
+                    candlestick_sections.append(f"첫 캔들 시간: {first_time_str} (KST)")
+                    candlestick_sections.append(f"마지막 캔들 시간: {last_time_str} (KST)")
+                    candlestick_sections.append(f"⚠️ 위 예시처럼 timestamp를 변환하세요: timestamp/1000 후 UTC+9시간")
                     candlestick_sections.append(f"최신 5개 캔들 미리보기:")
                     candlestick_sections.append(json.dumps(recent_preview))  # indent 제거로 토큰 절약
                     candlestick_sections.append(f"")
@@ -380,13 +405,20 @@ TAKE_PROFIT_ROE: [소수점 2자리] (ENTER_{position_side.upper()} 시 필수)
    - 이 빗각은 하향하는 저항선 역할
 
 **빗각 그리는 구체적 알고리즘:**
+⚠️ **타임스탬프 변환 규칙 (반드시 준수):**
+- timestamp는 밀리초 단위 → 초로 변환: timestamp / 1000
+- UTC 기준 날짜 변환 후 +9시간 (한국 시간 KST)
+- 캔들스틱 데이터 상단의 실제 예시를 참고하세요!
+
 ```
 1시간봉 분석 (상승 추세 - 롱):
 Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 Low 값이 가장 낮은 캔들 찾기
         → Point A (역사적 저점)
+        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
         
 Step 2: 역사적 저점을 제외한 전체 기간에서 Low 값이 두 번째로 낮은 캔들 찾기
         → Point B (두 번째 저점)
+        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
         
 Step 3: Point B가 형성된 과정 분석:
         - Point B 직전 고점 확인
@@ -401,9 +433,11 @@ Step 5: 현재 가격이 이 빗각선 대비 어느 위치에 있는지 파악
 1시간봉 분석 (하락 추세 - 숏):
 Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 High 값이 가장 높은 캔들 찾기
         → Point A' (역사적 고점)
+        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
         
 Step 2: 역사적 고점을 제외한 전체 기간에서 High 값이 두 번째로 높은 캔들 찾기
         → Point B' (두 번째 고점)
+        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
         
 Step 3: Point A'와 Point B'를 직선으로 연결 = 하락 빗각 (하향 저항선)
 
@@ -483,16 +517,22 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 **⚠️ 중요: HOLD, ENTER_LONG, ENTER_SHORT 어떤 결정이든 반드시 Step 1부터 Step 6까지 모든 분석을 완전히 수행하세요!**
 
 **Step 1: 빗각 분석 (1시간봉 기준 - 상승/하락 빗각 모두)**
+⚠️ **타임스탬프 변환 주의:** timestamp/1000 후 UTC+9시간 (캔들 데이터 상단 예시 참고)
+
 - 상승 빗각 (롱 판단용):
-  * Point A (역사적 저점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최저점 (가격, 시간, 캔들 인덱스)
-  * Point B (두 번째 저점): Point A 제외 전체 기간 중 두 번째 최저점 (가격, 시간, 캔들 인덱스)
+  * Point A (역사적 저점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최저점
+    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
+  * Point B (두 번째 저점): Point A 제외 전체 기간 중 두 번째 최저점
+    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
   * 변곡점 분석: Point B 직전 고점 → Point B 사이의 변곡점 구간
   * 빗각 기울기 및 유효성: 시간 간격, 각도, 최신성, 터치 횟수 검증
   * 현재 가격 vs 빗각: 돌파 여부, 리테스트 여부, 지지/이탈 분석
   
 - 하락 빗각 (숏 판단용):
-  * Point A' (역사적 고점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최고점 (가격, 시간, 캔들 인덱스)
-  * Point B' (두 번째 고점): Point A' 제외 전체 기간 중 두 번째 최고점 (가격, 시간, 캔들 인덱스)
+  * Point A' (역사적 고점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최고점
+    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
+  * Point B' (두 번째 고점): Point A' 제외 전체 기간 중 두 번째 최고점
+    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
   * 빗각 기울기 및 유효성: 시간 간격, 각도, 최신성, 터치 횟수 검증
   * 현재 가격 vs 빗각: 저항 여부, 돌파 여부 분석
   
@@ -792,17 +832,22 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 **🚨 의사결정 프로세스:**
 
 **Step 1: 빗각 분석 (Diagonal Line Analysis) - 가장 중요!**
+⚠️ **타임스탬프 변환 필수:** timestamp/1000 후 UTC+9시간 (캔들 데이터 상단 예시 참고)
 
 **1-A. 상승 빗각 그리기 (롱 포지션 판단용):**
    - Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 Low 값 최저점 → Point A (역사적 저점)
+     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
    - Step 2: Point A 제외하고 전체 기간에서 두 번째 최저점 → Point B (두 번째 저점)
+     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
    - Step 3: Point B 형성 과정 분석 (직전 고점 → Point B 사이 = 변곡점 구간)
    - Step 4: Point A와 Point B를 연결 → 상승 빗각 (우상향 지지선)
    - Step 5: 빗각 유효성 검증 (시간 간격, 각도, 최신성, 터치 횟수)
    
 **1-B. 하락 빗각 그리기 (숏 포지션 판단용):**
    - Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 High 값 최고점 → Point A' (역사적 고점)
+     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
    - Step 2: Point A' 제외하고 전체 기간에서 두 번째 최고점 → Point B' (두 번째 고점)
+     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
    - Step 3: Point A'와 Point B'를 연결 → 하락 빗각 (하향 저항선)
    - Step 4: 빗각 유효성 검증
    
