@@ -564,11 +564,11 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
             if self.model in ["claude-opus-4-1-20250805", "claude-sonnet-4-5-20250929"]:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 16000,
+                    "max_tokens": 32000,
                     "temperature": 1.0,   # Opus 4.1과 Sonnet 4.5는 temperature만 사용
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 16000  # 최대 분석 깊이
+                        "budget_tokens": 32000  # 최대 분석 깊이
                     },
                     "system": system_prompt,
                     "messages": [
@@ -581,12 +581,12 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
             else:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 16000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
+                    "max_tokens": 32000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
                     "temperature": 1.0,   # Extended Thinking 사용 시 반드시 1.0이어야 함
                     "top_p": 0.95,        # Extended Thinking 사용 시 0.95 이상이어야 함
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 16000  # 16000에서 32000으로 증가 (최대 분석 깊이)
+                        "budget_tokens": 32000  # 16000에서 32000으로 증가 (최대 분석 깊이)
                     },
                     "system": system_prompt,
                     "messages": [
@@ -1057,10 +1057,12 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
             reason = ""
             
             # 1. ## 🔍 ANALYSIS_DETAILS 또는 ## ANALYSIS_DETAILS 섹션 전체 추출 (우선순위 1)
+            # ⚠️ 중요: 서브헤더(###)와 메인헤더(##)를 구별해야 함
+            # (?=\n##)는 줄 시작의 ##를 찾고, (?!#)는 ###이 아닌 것을 확인
             analysis_patterns = [
-                r'##\s*[🔍📊🎯💡]*\s*ANALYSIS_DETAILS\s*\n*(.*?)(?=##|$)',  # 헤더 다음 빈 줄 무시
-                r'###\s*ANALYSIS_DETAILS\s*\n*(.*?)(?=###|$)',              # ### 형태도 지원
-                r'ANALYSIS_DETAILS\s*\n*(.*?)(?=##|###|$)'                  # 기본 형태
+                r'##\s*[🔍📊🎯💡]*\s*ANALYSIS_DETAILS\s*\n(.*?)(?=\n##(?!#)|$)',  # 다음 ## 섹션 또는 끝까지
+                r'###\s*ANALYSIS_DETAILS\s*\n(.*?)(?=\n##|$)',                    # ### 형태도 지원
+                r'ANALYSIS_DETAILS\s*\n(.*?)(?=\n##(?!#)|$)'                      # 기본 형태
             ]
             
             for pattern in analysis_patterns:
@@ -1068,7 +1070,7 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
                 if match:
                     reason = match.group(1).strip()
                     print(f"ANALYSIS_DETAILS 섹션 추출 성공 (길이: {len(reason)}, 패턴: {pattern[:30]}...)")
-                    if reason:  # 빈 문자열이 아닌 경우에만 사용
+                    if reason and len(reason) > 50:  # 의미있는 내용인 경우에만 사용 (최소 50자)
                         break
             
             # 2. **분석 결과:** 이후 내용 추출 (우선순위 2)
@@ -1174,11 +1176,11 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
             if self.model in ["claude-opus-4-1-20250805", "claude-sonnet-4-5-20250929"]:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 16000,
+                    "max_tokens": 32000,
                     "temperature": 1.0,   # Opus 4.1과 Sonnet 4.5는 temperature만 사용
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 16000  # 최대 분석 깊이
+                        "budget_tokens": 32000  # 최대 분석 깊이
                     },
                     "messages": [
                         {
@@ -1190,12 +1192,12 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
             else:
                 payload = {
                     "model": self.model,
-                    "max_tokens": 16000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
+                    "max_tokens": 32000,  # 50000에서 20000으로 최적화 (스트리밍 없이 안전한 범위)
                     "temperature": 1.0,   # Extended Thinking 사용 시 반드시 1.0이어야 함
                     "top_p": 0.95,        # Extended Thinking 사용 시 0.95 이상이어야 함
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 16000  # 16000에서 32000으로 증가 (최대 분석 깊이)
+                        "budget_tokens": 32000  # 16000에서 32000으로 증가 (최대 분석 깊이)
                     },
                     "messages": [
                         {
