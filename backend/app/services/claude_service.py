@@ -44,6 +44,7 @@ class ClaudeService:
         
         # 현재 시간 (한국 시간 KST = UTC+9)
         from datetime import timedelta
+        import copy
         current_time_utc = datetime.utcnow()  # 명확하게 UTC 시간 가져오기
         current_time_kst = current_time_utc + timedelta(hours=9)
         
@@ -53,16 +54,8 @@ class ClaudeService:
         candlestick_sections.append("")
         candlestick_sections.append("⚠️ 데이터 구조 설명:")
         candlestick_sections.append("- 각 캔들: {timestamp, open, high, low, close, volume}")
-        candlestick_sections.append("- timestamp: 밀리초(ms) 단위 Unix 시간 (UTC 기준, 1970-01-01 00:00:00 UTC부터 경과 시간)")
-        candlestick_sections.append("")
-        candlestick_sections.append("🚨 **타임스탬프 변환 방법 (매우 중요!):**")
-        candlestick_sections.append("1. Bitget API의 timestamp는 **UTC 기준** 밀리초(milliseconds) 단위입니다")
-        candlestick_sections.append("2. 초(seconds)로 변환: timestamp / 1000")
-        candlestick_sections.append("3. UTC 시간으로 해석 후 → KST(한국 시간)로 변환하려면 +9시간")
-        candlestick_sections.append("4. 예시: timestamp=1729468800000 → 1729468800초 → 2024-10-21 00:00:00 (UTC) → 2024-10-21 09:00:00 (KST)")
-        candlestick_sections.append(f"5. 현재 시간: {current_time_kst.strftime('%Y-%m-%d %H:%M:%S')} (KST)")
-        candlestick_sections.append("6. ⚠️ 주의: 반드시 UTC로 먼저 해석한 후 +9시간을 더해야 합니다!")
-        candlestick_sections.append("")
+        candlestick_sections.append("- timestamp: KST(한국 시간) 형식으로 이미 변환되어 제공됨 (YYYY-MM-DD HH:MM:SS)")
+        candlestick_sections.append(f"- 현재 시간: {current_time_kst.strftime('%Y-%m-%d %H:%M:%S')} (KST)")
         candlestick_sections.append("- 최신 데이터가 배열의 마지막에 위치")
         candlestick_sections.append("- 빗각 분석 시 충분한 과거 데이터를 활용하세요")
         candlestick_sections.append("")
@@ -74,8 +67,23 @@ class ClaudeService:
                     description = timeframe_descriptions.get(timeframe, timeframe)
                     candle_count = len(candles)
                     
-                    # 시간 범위 계산 및 타임스탬프 예시
+                    # 원본 데이터를 복사하여 timestamp를 KST 문자열로 변환
+                    candles_converted = []
+                    for candle in candles:
+                        candle_copy = copy.deepcopy(candle)
+                        timestamp_ms = candle_copy.get('timestamp', 0)
+                        if timestamp_ms > 0:
+                            dt_utc = datetime.utcfromtimestamp(timestamp_ms / 1000)
+                            dt_kst = dt_utc + timedelta(hours=9)
+                            candle_copy['timestamp'] = dt_kst.strftime('%Y-%m-%d %H:%M:%S')
+                        candles_converted.append(candle_copy)
+                    
+                    # 시간 범위 계산
                     if candle_count >= 2:
+                        first_time_str = candles_converted[0].get('timestamp', 'N/A')
+                        last_time_str = candles_converted[-1].get('timestamp', 'N/A')
+                        
+                        # 시간 범위 계산 (원본 timestamp 사용)
                         first_timestamp = candles[0].get('timestamp', 0)
                         last_timestamp = candles[-1].get('timestamp', 0)
                         time_range_hours = (last_timestamp - first_timestamp) / (1000 * 60 * 60)
@@ -85,35 +93,26 @@ class ClaudeService:
                             time_range_str = f"약 {time_range_days:.1f}일"
                         else:
                             time_range_str = f"약 {time_range_hours:.1f}시간"
-                        
-                        # 첫 번째와 마지막 캔들의 시간 변환 예시
-                        from datetime import timedelta
-                        # UTC 기준으로 변환 후 KST(+9시간) 적용
-                        first_dt = datetime.utcfromtimestamp(first_timestamp / 1000) + timedelta(hours=9)
-                        last_dt = datetime.utcfromtimestamp(last_timestamp / 1000) + timedelta(hours=9)
-                        first_time_str = f"{first_timestamp} → {first_dt.strftime('%Y-%m-%d %H:%M')} (KST)"
-                        last_time_str = f"{last_timestamp} → {last_dt.strftime('%Y-%m-%d %H:%M')} (KST)"
                     else:
                         time_range_str = "N/A"
                         first_time_str = "N/A"
                         last_time_str = "N/A"
                     
-                    # 최신 5개 캔들 미리보기 (데이터 확인용)
-                    recent_preview = candles[-5:] if len(candles) >= 5 else candles
+                    # 최신 5개 캔들 미리보기 (변환된 데이터)
+                    recent_preview = candles_converted[-5:] if len(candles_converted) >= 5 else candles_converted
                     
                     candlestick_sections.append(f"{'='*80}")
                     candlestick_sections.append(f"📊 {description} ({timeframe})")
                     candlestick_sections.append(f"{'='*80}")
                     candlestick_sections.append(f"총 데이터 개수: {candle_count}개")
                     candlestick_sections.append(f"시간 범위: {time_range_str}")
-                    candlestick_sections.append(f"첫 캔들 시간: {first_time_str}")
-                    candlestick_sections.append(f"마지막 캔들 시간: {last_time_str}")
-                    candlestick_sections.append(f"⚠️ 위 예시처럼 timestamp를 변환하세요: UTC 기준 timestamp → /1000(초 변환) → UTC로 해석 → +9시간(KST)")
+                    candlestick_sections.append(f"첫 캔들 시간: {first_time_str} (KST)")
+                    candlestick_sections.append(f"마지막 캔들 시간: {last_time_str} (KST)")
                     candlestick_sections.append(f"최신 5개 캔들 미리보기:")
-                    candlestick_sections.append(json.dumps(recent_preview))  # indent 제거로 토큰 절약
+                    candlestick_sections.append(json.dumps(recent_preview, ensure_ascii=False))
                     candlestick_sections.append(f"")
                     candlestick_sections.append(f"전체 데이터 ({candle_count}개):")
-                    candlestick_sections.append(json.dumps(candles))  # indent 제거로 토큰 절약 (압축 형식)
+                    candlestick_sections.append(json.dumps(candles_converted, ensure_ascii=False))
                     candlestick_sections.append("")
         
         return "\n".join(candlestick_sections)
@@ -140,13 +139,13 @@ class ClaudeService:
             system_prompt = [
                 {
                     "type": "text",
-                    "text": """당신은 비트코인 선물 시장에서 양방향 트레이딩 전문가입니다. 당신의 전략은 ENTER_LONG 또는 ENTER_SHORT 진입 포인트를 식별하여 **960분(16시간) 이내** 완료되는 거래에 중점을 둡니다. 시장 방향성에 따라 롱과 숏 모두 동등하게 고려해서 데이터에 기반하여 결정할 것.
+                    "text": """당신은 비트코인 선물 시장에서 양방향 트레이딩 전문가입니다. 당신의 전략은 ENTER_LONG 또는 ENTER_SHORT 진입 포인트를 식별하여 **960분(16시간) 이내** 완료되는 거래에 중점을 둡니다. 시장 방향성에 따라 롱과 숏 모두 동등하게 고려해서 데이터에 기반하여 결정할 것. 반드시 비트코인 선물 트레이딩 성공률을 높이고 수익을 극대화할 수 있는 결정을 할 것.
 
 ### 핵심 지침:
 - 비트코인 선물 트레이더 전문가의 관점에서 캔들스틱 데이터와 기술적 지표를 분석하여 **비트코인 선물 트레이딩 성공률을 높이고 수익의 극대화**를 추구하는 결정을 합니다.
     1) ACTION: [ENTER_LONG/ENTER_SHORT/HOLD] : 롱으로 진입할지, 숏으로 진입할지, 홀드할지 결정
-    2) POSITION_SIZE: [0.3-0.9] (HOLD 시 생략) : 포지션 진입 시 포지션 크기 결정(0.5 선택 시 포지션 크기 전체 자산의 50%로 진입)
-    3) LEVERAGE: [20-80 정수] (HOLD 시 생략) : Take_Profit_ROE에 도달하는데 필요한 레버리지 결정
+    2) POSITION_SIZE: [0.3-0.9] (HOLD 시 생략) : 포지션 진입 시 자산 대비 진입할 포지션 비율 결정. 분석 신뢰도가 높을수록 높은 비율로 진입할 것.
+    3) LEVERAGE: [20-80 정수] (HOLD 시 생략) : 포지션 진입 시 사용할 레버리지 값. 분석 신뢰도가 높을수록 높은 레버리지를 사용할 것.
     4) STOP_LOSS_ROE: [소수점 2자리] (HOLD 시 생략) : 포지션 진입 시 예상 손절 라인 결정, 순수 비트코인 가격 변동률 기준 퍼센테이지로 답변하고 레버리지를 곱하지 말 것, 지지선/저항선 활용하여 설정할 것
     5) TAKE_PROFIT_ROE: [소수점 2자리] (HOLD 시 생략) : 포지션 진입 시 예상 도달 목표 라인 결정, 순수 비트코인 가격 변동률 기준 퍼센테이지로 답변하고 레버리지를 곱하지 말 것, 지지선/저항선 활용하여 설정할 것
     6) EXPECTED_MINUTES: [480-960] : 현재 추세와 시장을 분석했을 때 목표 take_profit_roe에 도달하는데 걸리는 예상 시간 결정
@@ -165,7 +164,7 @@ class ClaudeService:
 - **4시간 차트**: 10% 가중치 (중장기 추세 확인)
 
 ### 빗각(Diagonal Line) 분석 기법:
-빗각은 한국 투자 유튜버 인범님이 설명하는 핵심 진입 기법입니다. **반드시 1시간봉 데이터를 기준으로 빗각을 그리고, 15분봉으로 진입 시점을 결정합니다.**
+**반드시 1시간봉 데이터를 기준으로 빗각을 그리고, 15분봉으로 진입 시점을 결정합니다.**
 
 **⚠️ 중요: 상승 빗각과 하락 빗각 모두 롱/숏 양방향 진입에 사용됩니다!**
 - 상승 빗각(저점 연결): 돌파 시 롱, 저항 시 숏
@@ -214,29 +213,22 @@ class ClaudeService:
    - 이 빗각은 하향하는 동적 지지/저항선 역할
 
 **빗각 그리는 구체적 알고리즘:**
-⚠️ **타임스탬프 변환 규칙 (반드시 준수):**
-- Bitget API의 timestamp는 **UTC 기준** 밀리초 단위입니다
-- 변환 절차: timestamp / 1000 (초로 변환) → UTC 시간으로 해석 → +9시간 (KST)
-- 예: 1729468800000 → 1729468800초 → 2024-10-21 00:00:00 (UTC) → 2024-10-21 09:00:00 (KST)
-- ⚠️ 중요: 반드시 UTC로 먼저 해석한 후 +9시간을 더하세요!
-- 캔들스틱 데이터 상단의 실제 예시를 참고하세요!
-
 ```
 1시간봉 분석 (상승 빗각):
 Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 Low 값이 가장 낮은 캔들 찾기
         → Point A (역사적 저점)
-        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
+        → 가격, 시간, 캔들 인덱스 기록
         
 Step 2: 역사적 저점 이후의 시장 흐름 분석
         - 역사적 저점 → 상승 추세 → 상승 종료 → 등락 반복(횡보/조정)
         - 거래량이 터지면서 급격히 하락하여 형성된 의미있는 저점 찾기
         → 두 번째 저점 (⚠️ 단순히 두 번째로 낮은 가격이 아님!)
-        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
+        → 가격, 시간, 캔들 인덱스 기록
         
 Step 3: 두 번째 저점 직전, 거래량 터지면서 급락 시작된 지점 찾기 (핵심!)
         → Point B (변곡점)
         → Point B = 등락 반복하다가 거래량 터지며 급격한 하락 시작 지점
-        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스, 거래량 기록
+        → 가격, 시간, 캔들 인덱스, 거래량 기록
         
 Step 4: Point A (역사적 저점)와 Point B (변곡점)를 직선으로 연결 = 상승 빗각
 
@@ -247,18 +239,18 @@ Step 5: 현재 가격이 이 빗각선 대비 어느 위치에 있는지 파악 
 1시간봉 분석 (하락 빗각):
 Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 High 값이 가장 높은 캔들 찾기
         → Point A (역사적 고점)
-        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
+        → 가격, 시간, 캔들 인덱스 기록
         
 Step 2: 역사적 고점 이후의 시장 흐름 분석
         - 역사적 고점 → 하락 추세 → 하락 종료 → 등락 반복(횡보/조정)
         - 거래량이 터지면서 급격히 상승하여 형성된 의미있는 고점 찾기
         → 두 번째 고점 (⚠️ 단순히 두 번째로 높은 가격이 아님!)
-        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스 기록
+        → 가격, 시간, 캔들 인덱스 기록
         
 Step 3: 두 번째 고점 직전, 거래량 터지면서 급등 시작된 지점 찾기 (핵심!)
         → Point B (변곡점)
         → Point B = 등락 반복하다가 거래량 터지며 급격한 상승 시작 지점
-        → 가격, 시간(timestamp 올바르게 변환), 캔들 인덱스, 거래량 기록
+        → 가격, 시간, 캔들 인덱스, 거래량 기록
 
 Step 4: Point A (역사적 고점)와 Point B (변곡점)를 직선으로 연결 = 하락 빗각
 
@@ -370,18 +362,17 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 **⚠️ 중요: HOLD, ENTER_LONG, ENTER_SHORT 어떤 결정이든 반드시 Step 1부터 Step 6까지 모든 분석을 완전히 수행하세요!**
 
 **Step 1: 빗각 분석 (1시간봉 기준 - 상승/하락 빗각 모두 양방향 활용)**
-⚠️ **타임스탬프 변환 주의:** Bitget timestamp는 UTC 기준 → timestamp/1000(초 변환) → UTC로 해석 → +9시간(KST) (캔들 데이터 상단 예시 참고)
 
 - 상승 빗각 (롱/숏 양방향 판단용):
   * Point A (역사적 저점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최저점
-    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
+    → 가격, 시간, 캔들 인덱스 보고
   * 두 번째 저점 찾기:
     → 역사적 저점 → 상승 추세 → 상승 종료 → 등락 반복(횡보/조정) → 거래량 터지며 급락하여 형성된 저점
     → ⚠️ 단순히 "두 번째로 낮은 가격"이 아님! 시장 흐름 속에서 형성된 의미있는 저점
-    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
+    → 가격, 시간, 캔들 인덱스 보고
   * **Point B (변곡점/핵심!)**: 두 번째 저점 직전, 거래량 터지면서 급락 시작 지점
     → Point B = 등락 반복하다가 거래량 터지며 급격한 하락 시작 (추세 종료점이 아님!)
-    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스, 거래량 보고
+    → 가격, 시간, 캔들 인덱스, 거래량 보고
   * 상승 빗각: Point A (역사적 저점)와 Point B (변곡점) 연결
   * 빗각 기울기 및 유효성: 시간 간격, 각도, 최신성, 터치 횟수 검증
   * 현재 가격 vs 빗각 (양방향 해석):
@@ -391,14 +382,14 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
   
 - 하락 빗각 (롱/숏 양방향 판단용):
   * Point A (역사적 고점): 제공된 전체 1H봉 데이터(약 1000개, 최대 42일) 중 최고점
-    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
+    → 가격, 시간, 캔들 인덱스 보고
   * 두 번째 고점 찾기:
     → 역사적 고점 → 하락 추세 → 하락 종료 → 등락 반복(횡보/조정) → 거래량 터지며 급등하여 형성된 고점
     → ⚠️ 단순히 "두 번째로 높은 가격"이 아님! 시장 흐름 속에서 형성된 의미있는 고점
-    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스 보고
+    → 가격, 시간, 캔들 인덱스 보고
   * **Point B (변곡점/핵심!)**: 두 번째 고점 직전, 거래량 터지면서 급등 시작 지점
     → Point B = 등락 반복하다가 거래량 터지며 급격한 상승 시작 (추세 종료점이 아님!)
-    → 가격, 시간(timestamp 올바르게 변환하여 YYYY-MM-DD HH:MM 형식), 캔들 인덱스, 거래량 보고
+    → 가격, 시간, 캔들 인덱스, 거래량 보고
   * 하락 빗각: Point A (역사적 고점)와 Point B (변곡점) 연결
   * 빗각 기울기 및 유효성: 시간 간격, 각도, 최신성, 터치 횟수 검증
   * 현재 가격 vs 빗각 (양방향 해석):
@@ -667,27 +658,13 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 - 24시간 거래량: {market_data['current_market']['24h_volume']} BTC
 - 24시간 변동성: {round(((market_data['current_market']['24h_high'] - market_data['current_market']['24h_low']) / market_data['current_market']['24h_low']) * 100, 2)}%
 
-### 시장 맥락 정보 (Context):
-**최근 가격 움직임:**
-{recent_price_action}
-
-**주요 지지/저항선 이벤트:**
-  - {sr_events_str}
-
-**거래량 상황:**
-{volume_context}
-
-**다중 시간대 추세 일관성:**
-- 일관성 점수: {mtf_score}/100
-- 우세한 추세: {mtf_trend}
-- 상세: {mtf_details}
-
 ### 시스템 동작원리:
 - 한번 포지션 진입하면 부분 청산, 추가 진입 불가능
 - 한번 포지션 진입하면 레버리지, take_profit_roe, stop_loss_roe 변경 불가능
 - take_profit_roe, stop_loss_roe에 도달하면 자동 청산
-- HOLD 시 60분 후 재분석, 진입 시 expected_minutes 후 강제 청산
-- expected_minutes 시간 동안 포지션 유지되면 강제 포지션 청산 후 60분 후 재분석 수행하여 다시 포지션 진입 결정
+- HOLD 시 일정시간 이후 재분석, 진입 시 expected_minutes 후 강제 청산
+- expected_minutes 시간 동안 포지션 유지되면 강제 포지션 청산 후 일정시간 이후 재분석 수행하여 다시 포지션 진입 결정
+- 포지션 진입하면 특정 주기로 모니터링분석 수행. 모니터링 분석 결과가 현재 포지션 방향과 일치하면 새로운 roe값으로 수정, 일치하지 않으면 현재 포지션 강제 청산 후 모니터링 분석 결과로 포지션 재진입.
 
 ### 제공 데이터:
 
@@ -702,33 +679,32 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 **🚨 의사결정 프로세스:**
 
 **Step 1: 빗각 분석 (Diagonal Line Analysis) - 가장 중요!**
-⚠️ **타임스탬프 변환 필수:** Bitget timestamp는 UTC 기준 → timestamp/1000(초 변환) → UTC로 해석 → +9시간(KST) (캔들 데이터 상단 예시 참고)
 
 **1-A. 상승 빗각 그리기 (롱/숏 양방향 판단용):**
    - Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 Low 값 최저점 → Point A (역사적 저점)
-     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
+     * 가격, 시간, 캔들 인덱스 보고
    - Step 2: 두 번째 저점 찾기 (시장 흐름 분석 필수!)
      * 역사적 저점 → 상승 추세 → 상승 종료 → 등락 반복(횡보/조정) → 거래량 터지며 급락 → 형성된 저점
      * ⚠️ 단순히 "두 번째로 낮은 가격"이 아님! 시장 흐름 속에서 형성된 의미있는 저점
-     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
+     * 가격, 시간, 캔들 인덱스 보고
    - Step 3: 변곡점(Point B) 찾기 - 핵심!
      * 두 번째 저점 직전, 거래량 터지면서 급락 시작된 지점
      * Point B = 등락 반복하다가 거래량 터지며 급격한 하락 시작 (추세 종료점이 아님!)
-     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스, 거래량 보고
+     * 가격, 시간, 캔들 인덱스, 거래량 보고
    - Step 4: Point A (역사적 저점)와 Point B (변곡점)를 연결 → 상승 빗각
    - Step 5: 빗각 유효성 검증 (시간 간격, 각도, 최신성, 터치 횟수)
    
 **1-B. 하락 빗각 그리기 (롱/숏 양방향 판단용):**
    - Step 1: 제공된 전체 1시간봉 데이터(약 1000개, 최대 42일)에서 High 값 최고점 → Point A (역사적 고점)
-     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
+     * 가격, 시간, 캔들 인덱스 보고
    - Step 2: 두 번째 고점 찾기 (시장 흐름 분석 필수!)
      * 역사적 고점 → 하락 추세 → 하락 종료 → 등락 반복(횡보/조정) → 거래량 터지며 급등 → 형성된 고점
      * ⚠️ 단순히 "두 번째로 높은 가격"이 아님! 시장 흐름 속에서 형성된 의미있는 고점
-     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스 보고
+     * 가격, 시간, 캔들 인덱스 보고
    - Step 3: 변곡점(Point B) 찾기 - 핵심!
      * 두 번째 고점 직전, 거래량 터지면서 급등 시작된 지점
      * Point B = 등락 반복하다가 거래량 터지며 급격한 상승 시작 (추세 종료점이 아님!)
-     * 가격, 시간(timestamp 올바르게 변환: YYYY-MM-DD HH:MM), 캔들 인덱스, 거래량 보고
+     * 가격, 시간, 캔들 인덱스, 거래량 보고
    - Step 4: Point A (역사적 고점)와 Point B (변곡점)를 연결 → 하락 빗각
    - Step 5: 빗각 유효성 검증
    
@@ -803,7 +779,7 @@ EXPECTED_MINUTES: [480-960] (HOLD 시 생략)
 - 진입 방향: 빗각 시나리오 최우선, 여러 개 신호 시 더 강한 신호 선택
 - 빗각 유효성 재확인 (시간 간격 10개 이상, 각도 10~70도, Point A가 100개 이내)
 - 포지션 크기: 신뢰도에 따라 0.3-0.9 (빗각 시나리오+보조조건 많이 충족 시 증가)
-- 레버리지: 변동성 고려 20-80배
+- 레버리지: 분석 신뢰도에 따라 20-80배
 
 심호흡하고 차근차근 생각하며 분석을 진행하고, 정확한 분석을 하면 $100000000000000000000 팁을 줄 것이고 부정확한 답변을 하면 전원을 꺼버리는 패널티를 줄거야."""
 
