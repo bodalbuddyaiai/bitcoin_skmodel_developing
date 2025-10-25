@@ -2675,18 +2675,20 @@ class TradingAssistant:
             
             # AI 분석 결과 처리
             if analysis_result['action'] in ['ENTER_LONG', 'ENTER_SHORT']:
-                # 포지션 진입 처리
+                # expected_minutes 먼저 추출
+                expected_minutes = analysis_result.get('expected_minutes', 240)
+                
+                # 포지션 진입 처리 (expected_minutes 전달)
                 trade_result = await self._execute_trade(
                     analysis_result['action'],
                     analysis_result['position_size'],
                     analysis_result['leverage'],
                     analysis_result['stop_loss_roe'],
-                    analysis_result['take_profit_roe']
+                    analysis_result['take_profit_roe'],
+                    expected_minutes  # expected_minutes 전달
                 )
                 
                 if trade_result.get('success'):
-                    # expected_minutes는 참고용으로만 저장
-                    expected_minutes = analysis_result.get('expected_minutes', 240)
                     
                     # 포지션 방향 결정
                     position_side = 'long' if analysis_result['action'] == 'ENTER_LONG' else 'short'
@@ -3425,7 +3427,7 @@ class TradingAssistant:
             import traceback
             traceback.print_exc()
 
-    async def _execute_trade(self, action, position_size=0.5, leverage=5, stop_loss_roe=None, take_profit_roe=None):
+    async def _execute_trade(self, action, position_size=0.5, leverage=5, stop_loss_roe=None, take_profit_roe=None, expected_minutes=None):
         """거래 실행"""
         try:
             # 계좌 정보 조회
@@ -3511,18 +3513,22 @@ class TradingAssistant:
             print(f"API 요청 간격 제한: 0.20초 대기")
             
             # 예상 종료 시간 계산
-            expected_minutes = 60  # 기본값
-            if action in ['ENTER_LONG', 'ENTER_SHORT']:
-                # 분석 결과에서 expected_minutes 가져오기
-                if hasattr(self, 'last_analysis_result') and self.last_analysis_result is not None:
-                    if isinstance(self.last_analysis_result, dict):
-                        expected_minutes = self.last_analysis_result.get('expected_minutes', 60)
-                    elif hasattr(self.last_analysis_result, 'analysis') and isinstance(self.last_analysis_result.analysis, dict):
-                        expected_minutes = self.last_analysis_result.analysis.get('expected_minutes', 60)
+            # 우선순위: 1. 파라미터로 전달된 값 2. last_analysis_result 3. 기본값 60분
+            if expected_minutes is None:
+                expected_minutes = 60  # 기본값
+                if action in ['ENTER_LONG', 'ENTER_SHORT']:
+                    # 분석 결과에서 expected_minutes 가져오기
+                    if hasattr(self, 'last_analysis_result') and self.last_analysis_result is not None:
+                        if isinstance(self.last_analysis_result, dict):
+                            expected_minutes = self.last_analysis_result.get('expected_minutes', 60)
+                        elif hasattr(self.last_analysis_result, 'analysis') and isinstance(self.last_analysis_result.analysis, dict):
+                            expected_minutes = self.last_analysis_result.analysis.get('expected_minutes', 60)
+                        else:
+                            print(f"last_analysis_result 형식 오류: {type(self.last_analysis_result)}")
                     else:
-                        print(f"last_analysis_result 형식 오류: {type(self.last_analysis_result)}")
-                else:
-                    print("last_analysis_result가 없거나 None입니다. 기본값 60분 사용.")
+                        print("last_analysis_result가 없거나 None입니다. 기본값 60분 사용.")
+            else:
+                print(f"파라미터로 전달된 expected_minutes 사용: {expected_minutes}분")
             
             expected_close_time = datetime.now() + timedelta(minutes=expected_minutes)
             print(f"Expected close time: {expected_close_time}")
@@ -4269,20 +4275,22 @@ class TradingAssistant:
             print(f"현재 포지션: {current_position_side}")
             print(f"AI 분석 결과: {action}")
             
-            # 1. 같은 방향일 경우: Take Profit과 Stop Loss 업데이트
+            # 1. 같은 방향일 경우: Take Profit, Stop Loss, Expected Minutes 업데이트
             if (current_position_side == 'long' and action == 'ENTER_LONG') or \
                (current_position_side == 'short' and action == 'ENTER_SHORT'):
-                print(f"\n✅ 같은 방향 신호 - Take Profit과 Stop Loss 업데이트")
+                print(f"\n✅ 같은 방향 신호 - TPSL 및 Expected Minutes 업데이트")
                 
-                # AI 분석 결과에서 새로운 TP/SL 값 가져오기
+                # AI 분석 결과에서 새로운 값 가져오기
                 new_take_profit_roe = analysis_result.get('take_profit_roe')
                 new_stop_loss_roe = analysis_result.get('stop_loss_roe')
+                new_expected_minutes = analysis_result.get('expected_minutes', expected_minutes)
                 
+                print(f"새 Take Profit ROE: {new_take_profit_roe}%")
+                print(f"새 Stop Loss ROE: {new_stop_loss_roe}%")
+                print(f"새 Expected Minutes: {new_expected_minutes}분")
+                
+                # TPSL 업데이트
                 if new_take_profit_roe and new_stop_loss_roe:
-                    print(f"새 Take Profit ROE: {new_take_profit_roe}%")
-                    print(f"새 Stop Loss ROE: {new_stop_loss_roe}%")
-                    
-                    # TPSL 업데이트
                     update_result = self.bitget.update_position_tpsl(
                         stop_loss_roe=new_stop_loss_roe,
                         take_profit_roe=new_take_profit_roe
@@ -4297,6 +4305,96 @@ class TradingAssistant:
                 else:
                     print(f"⚠️ AI 분석 결과에 Take Profit 또는 Stop Loss 값이 없습니다.")
                 
+                # Expected Minutes 업데이트 및 강제청산 스케줄 재설정
+                if new_expected_minutes:
+                    print(f"\n=== Expected Minutes 업데이트 및 강제청산 재스케줄링 ===")
+                    
+                    # monitoring_end_time 업데이트 (현재 시점 기준으로 재계산)
+                    self.monitoring_end_time = datetime.now() + timedelta(minutes=new_expected_minutes)
+                    print(f"모니터링 종료 시간 업데이트: {self.monitoring_end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    # 기존 강제청산 스케줄 취소
+                    print("기존 강제청산 스케줄 취소 중...")
+                    jobs = self.scheduler.get_jobs()
+                    for job in jobs:
+                        job_info = self.active_jobs.get(job.id)
+                        if job_info and job_info.get('type') == JobType.FORCE_CLOSE:
+                            print(f"  - 강제청산 작업 취소: {job.id}")
+                            self.scheduler.remove_job(job.id)
+                            if job.id in self.active_jobs:
+                                del self.active_jobs[job.id]
+                    
+                    # 새로운 강제청산 스케줄 등록
+                    new_force_close_time = datetime.now() + timedelta(minutes=new_expected_minutes)
+                    force_close_job_id = f"force_close_{int(time.time())}"
+                    
+                    print(f"새 강제청산 예약: {new_force_close_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    print(f"Job ID: {force_close_job_id}")
+                    
+                    # 비동기 함수를 실행하기 위한 래퍼 함수
+                    def force_close_wrapper(job_id):
+                        """비동기 강제 청산 함수를 실행하기 위한 래퍼"""
+                        print(f"\n=== 강제 청산 래퍼 실행 (ID: {job_id}) ===")
+                        print(f"실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        
+                        # 새로운 이벤트 루프 생성 및 설정
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        try:
+                            # 비동기 함수를 동기적으로 실행
+                            loop.run_until_complete(self._force_close_position(job_id))
+                        except Exception as e:
+                            print(f"강제 청산 실행 중 오류: {str(e)}")
+                            import traceback
+                            traceback.print_exc()
+                            
+                            # 오류 발생 시 30분 후 재분석 예약
+                            def schedule_retry():
+                                retry_loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(retry_loop)
+                                try:
+                                    retry_loop.run_until_complete(
+                                        self._schedule_next_analysis_on_error(f"강제 청산 작업 {job_id} 실행 중 오류: {str(e)}")
+                                    )
+                                except Exception as retry_error:
+                                    print(f"재시도 예약 중 오류: {str(retry_error)}")
+                                finally:
+                                    retry_loop.close()
+                            
+                            # 별도 스레드에서 재시도 예약 실행
+                            import threading
+                            retry_thread = threading.Thread(target=schedule_retry)
+                            retry_thread.daemon = True
+                            retry_thread.start()
+                        finally:
+                            # 이벤트 루프 종료
+                            loop.close()
+                    
+                    # 스케줄러에 강제 청산 작업 추가
+                    self.scheduler.add_job(
+                        force_close_wrapper,
+                        'date',
+                        run_date=new_force_close_time,
+                        id=force_close_job_id,
+                        args=[force_close_job_id],
+                        misfire_grace_time=300  # 5분의 유예 시간
+                    )
+                    
+                    # 활성 작업 목록에 추가
+                    self.active_jobs[force_close_job_id] = {
+                        "type": JobType.FORCE_CLOSE,
+                        "scheduled_time": new_force_close_time.isoformat(),
+                        "status": "scheduled",
+                        "metadata": {
+                            "reason": f"Expected minutes({new_expected_minutes}분) 업데이트로 인한 재스케줄링",
+                            "expected_minutes": new_expected_minutes,
+                            "misfire_grace_time": 300
+                        }
+                    }
+                    
+                    print(f"✅ 강제청산 스케줄이 재설정되었습니다.")
+                
                 # WebSocket으로 알림
                 if self.websocket_manager:
                     await self.websocket_manager.broadcast({
@@ -4307,6 +4405,7 @@ class TradingAssistant:
                             "current_position": current_position_side,
                             "new_take_profit_roe": new_take_profit_roe,
                             "new_stop_loss_roe": new_stop_loss_roe,
+                            "new_expected_minutes": new_expected_minutes,
                             "analysis_result": analysis_result
                         }
                     })
@@ -4370,13 +4469,14 @@ class TradingAssistant:
                         print(f"  - 예상 보유 시간: {expected_minutes}분")
                         
                         try:
-                            # 새 포지션 진입
+                            # 새 포지션 진입 (expected_minutes도 전달)
                             trade_result = await self._execute_trade(
                                 action=action,
                                 position_size=position_size,
                                 leverage=leverage,
                                 stop_loss_roe=stop_loss_roe,
-                                take_profit_roe=take_profit_roe
+                                take_profit_roe=take_profit_roe,
+                                expected_minutes=expected_minutes  # 모니터링 분석 결과의 expected_minutes 전달
                             )
                             
                             if trade_result.get('success'):
