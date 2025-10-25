@@ -22,3 +22,19 @@ class EmailSettings(Base):
     send_monitoring_analysis = Column(Boolean, default=True)  # 모니터링분석 이메일 발송 여부
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+class DiagonalSettings(Base):
+    """빗각 분석 포인트 설정 테이블"""
+    __tablename__ = "diagonal_settings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # 빗각 타입 선택 (uptrend 또는 downtrend 중 하나만)
+    diagonal_type = Column(String, nullable=True)  # 'uptrend' 또는 'downtrend'
+    
+    # 포인트 시간 설정 (YYYY-MM-DD HH:MM 형식)
+    point_a_time = Column(String, nullable=True)  # Point A (역사적 저점 또는 고점) 시간
+    point_second_time = Column(String, nullable=True)  # 두 번째 저점 또는 고점 시간
+    point_b_time = Column(String, nullable=True)  # 변곡점 시간
+    
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+

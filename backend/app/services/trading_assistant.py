@@ -210,6 +210,40 @@ class TradingAssistant:
                 'monitoring_interval_minutes': 90
             }
     
+    def _get_diagonal_settings(self):
+        """데이터베이스에서 빗각 설정 로드"""
+        try:
+            from app.models.trading_settings import DiagonalSettings
+            db = next(get_db())
+            
+            diagonal_setting = db.query(DiagonalSettings).first()
+            
+            if diagonal_setting:
+                result = {
+                    'diagonal_type': diagonal_setting.diagonal_type,
+                    'point_a_time': diagonal_setting.point_a_time,
+                    'point_second_time': diagonal_setting.point_second_time,
+                    'point_b_time': diagonal_setting.point_b_time,
+                }
+            else:
+                result = {
+                    'diagonal_type': None,
+                    'point_a_time': None,
+                    'point_second_time': None,
+                    'point_b_time': None,
+                }
+            
+            db.close()
+            return result
+        except Exception as e:
+            print(f"빗각 설정 로드 실패: {e}")
+            return {
+                'diagonal_type': None,
+                'point_a_time': None,
+                'point_second_time': None,
+                'point_b_time': None,
+            }
+    
     def update_settings(self, setting_name: str, setting_value: int):
         """설정 업데이트"""
         try:
@@ -1118,9 +1152,9 @@ class TradingAssistant:
                     # "1m": 제외 (토큰 절약 - 15m으로 충분)
                     # "3m": 제외 (토큰 절약 - 3이 포함된 시간봉)
                     # "5m": 제외 (토큰 절약 - 15m으로 충분)
-                    "15m": {"start": current_time - min(52 * 24 * 60 * 60 * 1000, max_query_range), "limit": "900"}, # 52일 제한, 900개로 감소
+                    "15m": {"start": current_time - min(52 * 24 * 60 * 60 * 1000, max_query_range), "limit": "950"}, # 52일 제한, 950개
                     # "30m": 제외 (토큰 절약 - 3이 포함된 시간봉)
-                    "1H": {"start": current_time - min(83 * 24 * 60 * 60 * 1000, max_query_range), "limit": "900"},  # 83일 제한, 900개로 감소
+                    "1H": {"start": current_time - min(83 * 24 * 60 * 60 * 1000, max_query_range), "limit": "950"},  # 83일 제한, 950개
                     "4H": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "540"},   # 90일 제약, 최대 540개 (90일 ÷ 4시간)
                     # "6H": 제외 (토큰 절약 - 4H와 12H로 충분)
                     "12H": {"start": current_time - min(90 * 24 * 60 * 60 * 1000, max_query_range), "limit": "180"},  # 90일 제약, 최대 180개 (90일 ÷ 12시간)
@@ -1192,6 +1226,11 @@ class TradingAssistant:
                     current_price
                 )
                 print(f"맥락 정보 생성 완료: {formatted_data['market_context']}")
+                
+                # 7. 빗각 설정 추가 (사용자 지정 포인트)
+                print("\n빗각 설정 로드 중...")
+                formatted_data['diagonal_settings'] = self._get_diagonal_settings()
+                print(f"빗각 설정 로드 완료")
                 
                 print("=== 시장 데이터 수집 완료 ===\n")
                 return formatted_data

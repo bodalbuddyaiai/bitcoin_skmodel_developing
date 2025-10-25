@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 from ..services.trading_assistant import TradingAssistant
-from ..models.trading_settings import TradingSettings, EmailSettings
+from ..models.trading_settings import TradingSettings, EmailSettings, DiagonalSettings
 from ..database.db import get_db
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -38,6 +38,22 @@ class EmailSettingResponse(BaseModel):
     email_address: Optional[str]
     send_main_analysis: bool
     send_monitoring_analysis: bool
+    
+    class Config:
+        from_attributes = True
+
+class DiagonalSettingUpdate(BaseModel):
+    diagonal_type: Optional[str] = None  # 'uptrend' 또는 'downtrend'
+    point_a_time: Optional[str] = None
+    point_second_time: Optional[str] = None
+    point_b_time: Optional[str] = None
+
+class DiagonalSettingResponse(BaseModel):
+    id: int
+    diagonal_type: Optional[str]
+    point_a_time: Optional[str]
+    point_second_time: Optional[str]
+    point_b_time: Optional[str]
     
     class Config:
         from_attributes = True
@@ -153,6 +169,64 @@ async def update_email_settings(setting_update: EmailSettingUpdate, db: Session 
                 "email_address": email_setting.email_address,
                 "send_main_analysis": email_setting.send_main_analysis,
                 "send_monitoring_analysis": email_setting.send_monitoring_analysis
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+
+@router.get("/diagonal-settings", response_model=DiagonalSettingResponse)
+async def get_diagonal_settings(db: Session = Depends(get_db)):
+    """빗각 분석 포인트 설정 조회"""
+    try:
+        diagonal_setting = db.query(DiagonalSettings).first()
+        
+        # 설정이 없으면 기본값으로 생성
+        if not diagonal_setting:
+            diagonal_setting = DiagonalSettings(
+                diagonal_type=None
+            )
+            db.add(diagonal_setting)
+            db.commit()
+            db.refresh(diagonal_setting)
+        
+        return diagonal_setting
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@router.put("/diagonal-settings")
+async def update_diagonal_settings(setting_update: DiagonalSettingUpdate, db: Session = Depends(get_db)):
+    """빗각 분석 포인트 설정 수정"""
+    try:
+        diagonal_setting = db.query(DiagonalSettings).first()
+        
+        # 설정이 없으면 생성
+        if not diagonal_setting:
+            diagonal_setting = DiagonalSettings()
+            db.add(diagonal_setting)
+        
+        # 업데이트할 필드만 변경
+        if setting_update.diagonal_type is not None:
+            diagonal_setting.diagonal_type = setting_update.diagonal_type
+        if setting_update.point_a_time is not None:
+            diagonal_setting.point_a_time = setting_update.point_a_time
+        if setting_update.point_second_time is not None:
+            diagonal_setting.point_second_time = setting_update.point_second_time
+        if setting_update.point_b_time is not None:
+            diagonal_setting.point_b_time = setting_update.point_b_time
+        
+        db.commit()
+        db.refresh(diagonal_setting)
+        
+        return {
+            "success": True,
+            "message": "빗각 설정이 업데이트되었습니다",
+            "setting": {
+                "id": diagonal_setting.id,
+                "diagonal_type": diagonal_setting.diagonal_type,
+                "point_a_time": diagonal_setting.point_a_time,
+                "point_second_time": diagonal_setting.point_second_time,
+                "point_b_time": diagonal_setting.point_b_time
             }
         }
     except Exception as e:

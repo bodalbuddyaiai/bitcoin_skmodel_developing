@@ -218,4 +218,26 @@ export const updateEmailSettings = async (emailSettings) => {
   }
 };
 
+// 빗각 설정 조회
+export const getDiagonalSettings = async () => {
+  try {
+    const response = await api.get('/api/trading/diagonal-settings');
+    return response.data;
+  } catch (error) {
+    console.error('Error getting diagonal settings:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// 빗각 설정 업데이트
+export const updateDiagonalSettings = async (diagonalSettings) => {
+  try {
+    const response = await api.put('/api/trading/diagonal-settings', diagonalSettings);
+    return response.data;
+  } catch (error) {
+    console.error('Error updating diagonal settings:', error);
+    throw error;
+  }
+};
+
  
