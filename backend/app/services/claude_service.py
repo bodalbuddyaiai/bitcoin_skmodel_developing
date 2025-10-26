@@ -491,7 +491,7 @@ Step 5: 현재 가격이 이 빗각선 대비 어느 위치에 있는지 파악 
 - 다중 시간대 일관성 점수가 60점 이상일 때 더 유리
 - 극단적 변동성 구간(ATR% > 6%)에서는 신중하게 판단
 
-### 응답 형식:
+### 응답 형식: (**매우중요! 반드시 꼭 아래 형식에 맞게 아래 **Trading_Decision**과 **Analysis_Details** 섹션을 포함하여 답변할 것)
 ## TRADING_DECISION
 ACTION: [ENTER_LONG/ENTER_SHORT/HOLD]
 POSITION_SIZE: [0.3-0.9] (HOLD 시 생략)
