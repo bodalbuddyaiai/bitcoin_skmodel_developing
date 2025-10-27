@@ -211,7 +211,7 @@ class TradingAssistant:
             }
     
     def _get_diagonal_settings(self):
-        """데이터베이스에서 빗각 설정 로드"""
+        """데이터베이스에서 빗각 설정 로드 - 상승/하락 빗각 모두"""
         try:
             from app.models.trading_settings import DiagonalSettings
             db = next(get_db())
@@ -220,28 +220,133 @@ class TradingAssistant:
             
             if diagonal_setting:
                 result = {
-                    'diagonal_type': diagonal_setting.diagonal_type,
-                    'point_a_time': diagonal_setting.point_a_time,
-                    'point_second_time': diagonal_setting.point_second_time,
-                    'point_b_time': diagonal_setting.point_b_time,
+                    # 상승 빗각 설정
+                    'uptrend': {
+                        'point_a_time': diagonal_setting.uptrend_point_a_time,
+                        'point_second_time': diagonal_setting.uptrend_point_second_time,
+                        'point_b_time': diagonal_setting.uptrend_point_b_time,
+                    },
+                    # 하락 빗각 설정
+                    'downtrend': {
+                        'point_a_time': diagonal_setting.downtrend_point_a_time,
+                        'point_second_time': diagonal_setting.downtrend_point_second_time,
+                        'point_b_time': diagonal_setting.downtrend_point_b_time,
+                    }
                 }
             else:
                 result = {
-                    'diagonal_type': None,
-                    'point_a_time': None,
-                    'point_second_time': None,
-                    'point_b_time': None,
+                    'uptrend': {
+                        'point_a_time': None,
+                        'point_second_time': None,
+                        'point_b_time': None,
+                    },
+                    'downtrend': {
+                        'point_a_time': None,
+                        'point_second_time': None,
+                        'point_b_time': None,
+                    }
                 }
             
             db.close()
             return result
         except Exception as e:
             print(f"빗각 설정 로드 실패: {e}")
+            import traceback
+            traceback.print_exc()
             return {
-                'diagonal_type': None,
-                'point_a_time': None,
-                'point_second_time': None,
-                'point_b_time': None,
+                'uptrend': {
+                    'point_a_time': None,
+                    'point_second_time': None,
+                    'point_b_time': None,
+                },
+                'downtrend': {
+                    'point_a_time': None,
+                    'point_second_time': None,
+                    'point_b_time': None,
+                }
+            }
+    
+    def _extract_diagonal_candles(self, diagonal_settings, candles_1h):
+        """
+        사용자가 지정한 시간의 캔들 데이터를 1시간봉에서 추출 - 상승/하락 빗각 모두
+        
+        Args:
+            diagonal_settings: 빗각 설정 (상승/하락 빗각 시간 정보 포함)
+            candles_1h: 1시간봉 캔들 데이터 리스트
+        
+        Returns:
+            dict: 추출된 캔들 정보 (상승 빗각, 하락 빗각)
+        """
+        try:
+            print(f"\n=== 빗각 캔들 데이터 추출 시작 (상승/하락 모두) ===")
+            
+            result = {
+                'uptrend': None,
+                'downtrend': None
+            }
+            
+            # 상승 빗각 추출
+            uptrend_settings = diagonal_settings.get('uptrend', {})
+            if uptrend_settings.get('point_a_time') and uptrend_settings.get('point_second_time') and uptrend_settings.get('point_b_time'):
+                print(f"\n[상승 빗각] 캔들 추출 중...")
+                print(f"  Point A 시간: {uptrend_settings['point_a_time']}")
+                print(f"  두 번째 저점 시간: {uptrend_settings['point_second_time']}")
+                print(f"  Point B 시간: {uptrend_settings['point_b_time']}")
+                
+                uptrend_point_a = self.bitget.find_candle_by_time(candles_1h, uptrend_settings['point_a_time'])
+                uptrend_point_second = self.bitget.find_candle_by_time(candles_1h, uptrend_settings['point_second_time'])
+                uptrend_point_b = self.bitget.find_candle_by_time(candles_1h, uptrend_settings['point_b_time'])
+                
+                if uptrend_point_a and uptrend_point_second and uptrend_point_b:
+                    result['uptrend'] = {
+                        'diagonal_type': 'uptrend',
+                        'price_field': 'low',
+                        'point_a': uptrend_point_a,
+                        'point_second': uptrend_point_second,
+                        'point_b': uptrend_point_b
+                    }
+                    print(f"  ✅ 상승 빗각 캔들 추출 완료")
+                else:
+                    print(f"  ⚠️ 상승 빗각 일부 캔들을 찾지 못했습니다.")
+            else:
+                print(f"[상승 빗각] 설정되지 않음 - 건너뛰기")
+            
+            # 하락 빗각 추출
+            downtrend_settings = diagonal_settings.get('downtrend', {})
+            if downtrend_settings.get('point_a_time') and downtrend_settings.get('point_second_time') and downtrend_settings.get('point_b_time'):
+                print(f"\n[하락 빗각] 캔들 추출 중...")
+                print(f"  Point A 시간: {downtrend_settings['point_a_time']}")
+                print(f"  두 번째 고점 시간: {downtrend_settings['point_second_time']}")
+                print(f"  Point B 시간: {downtrend_settings['point_b_time']}")
+                
+                downtrend_point_a = self.bitget.find_candle_by_time(candles_1h, downtrend_settings['point_a_time'])
+                downtrend_point_second = self.bitget.find_candle_by_time(candles_1h, downtrend_settings['point_second_time'])
+                downtrend_point_b = self.bitget.find_candle_by_time(candles_1h, downtrend_settings['point_b_time'])
+                
+                if downtrend_point_a and downtrend_point_second and downtrend_point_b:
+                    result['downtrend'] = {
+                        'diagonal_type': 'downtrend',
+                        'price_field': 'high',
+                        'point_a': downtrend_point_a,
+                        'point_second': downtrend_point_second,
+                        'point_b': downtrend_point_b
+                    }
+                    print(f"  ✅ 하락 빗각 캔들 추출 완료")
+                else:
+                    print(f"  ⚠️ 하락 빗각 일부 캔들을 찾지 못했습니다.")
+            else:
+                print(f"[하락 빗각] 설정되지 않음 - 건너뛰기")
+            
+            print(f"\n=== 빗각 캔들 데이터 추출 완료 ===")
+            return result
+            
+        except Exception as e:
+            print(f"빗각 캔들 데이터 추출 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                'uptrend': None,
+                'downtrend': None
             }
     
     def update_settings(self, setting_name: str, setting_value: int):
@@ -1227,10 +1332,20 @@ class TradingAssistant:
                 )
                 print(f"맥락 정보 생성 완료: {formatted_data['market_context']}")
                 
-                # 7. 빗각 설정 추가 (사용자 지정 포인트)
+                # 7. 빗각 설정 추가 및 캔들 데이터 추출 (사용자 지정 포인트)
                 print("\n빗각 설정 로드 중...")
-                formatted_data['diagonal_settings'] = self._get_diagonal_settings()
-                print(f"빗각 설정 로드 완료")
+                diagonal_settings = self._get_diagonal_settings()
+                
+                # 1시간봉 데이터에서 사용자가 지정한 시간의 캔들 추출
+                candles_1h = formatted_data.get('candlesticks', {}).get('1H', [])
+                diagonal_candles = self._extract_diagonal_candles(diagonal_settings, candles_1h)
+                
+                # 원래 시간 정보와 추출된 캔들 정보를 함께 저장
+                formatted_data['diagonal_settings'] = {
+                    **diagonal_settings,  # 원래 시간 정보 유지
+                    'extracted_candles': diagonal_candles  # 추출된 캔들 정보 추가
+                }
+                print(f"빗각 설정 로드 및 캔들 추출 완료")
                 
                 print("=== 시장 데이터 수집 완료 ===\n")
                 return formatted_data
@@ -2655,6 +2770,11 @@ class TradingAssistant:
     async def analyze_and_execute(self, job_id=None, schedule_next=True):
         """기존 분석 및 실행 메서드 수정"""
         try:
+            # 청산 플래그 초기화 (재분석 시작 시)
+            if hasattr(self, '_liquidation_detected') and self._liquidation_detected:
+                print("\n=== 재분석 시작: 청산 플래그 초기화 ===")
+                self.reset_liquidation_flag()
+            
             # 현재 시장 데이터 수집
             market_data = await self._collect_market_data()
             if not market_data:
@@ -3262,17 +3382,27 @@ class TradingAssistant:
                     if hasattr(self, '_liquidation_detected') and self._liquidation_detected:
                         # 30초마다 로그 출력
                         current_time = time.time()
-                        if (current_time - self._last_position_log_time) < self._position_log_interval:
-                            return
-                        self._last_position_log_time = current_time
-                        print("이미 청산이 감지되었습니다. 중복 처리를 방지합니다.")
+                        should_log = (current_time - self._last_position_log_time) >= self._position_log_interval
                         
-                        # 수동 청산 후 일정 시간(5분)이 지났는데도 플래그가 초기화되지 않았다면 강제 초기화
-                        if hasattr(self, '_manual_liquidation') and self._manual_liquidation:
-                            liquidation_time = getattr(self, '_liquidation_time', None)
-                            if liquidation_time and (datetime.now() - liquidation_time).total_seconds() > 300:  # 5분
-                                print("청산 감지 플래그가 5분 이상 유지되어 강제 초기화합니다.")
-                                self.reset_liquidation_flag()
+                        if should_log:
+                            self._last_position_log_time = current_time
+                            print("이미 청산이 감지되었습니다. 중복 처리를 방지합니다.")
+                        
+                        # 청산 후 일정 시간(2분)이 지났는데도 플래그가 초기화되지 않았다면 경고
+                        liquidation_time = getattr(self, '_liquidation_time', None)
+                        if liquidation_time and (datetime.now() - liquidation_time).total_seconds() > 120:  # 2분
+                            if should_log:
+                                print(f"⚠️ 청산 감지 플래그가 {int((datetime.now() - liquidation_time).total_seconds() / 60)}분째 유지 중입니다.")
+                                print("   재분석이 스케줄되었는지 확인하세요.")
+                                # 스케줄된 작업 확인
+                                jobs = self.scheduler.get_jobs()
+                                if jobs:
+                                    print(f"   스케줄된 작업: {len(jobs)}개")
+                                    for job in jobs:
+                                        job_info = self.active_jobs.get(job.id, {})
+                                        print(f"     - {job.id}: {job_info.get('type', 'unknown')} at {job.next_run_time}")
+                                else:
+                                    print("   ⚠️ 스케줄된 작업이 없습니다!")
                         return
                     
                     # 현재 가격 조회
@@ -3381,6 +3511,8 @@ class TradingAssistant:
                         "scheduled_time": next_analysis_time.isoformat(),
                         "reason": "포지션 청산 후 자동 재시작"
                     }
+                    
+                    print(f"재분석 스케줄링 완료. {next_analysis_minutes}분 후 실행 예정")
                     
                     # 청산 메시지 웹소켓으로 전송
                     try:

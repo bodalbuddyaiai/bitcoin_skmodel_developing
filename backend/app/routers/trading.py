@@ -43,17 +43,25 @@ class EmailSettingResponse(BaseModel):
         from_attributes = True
 
 class DiagonalSettingUpdate(BaseModel):
-    diagonal_type: Optional[str] = None  # 'uptrend' 또는 'downtrend'
-    point_a_time: Optional[str] = None
-    point_second_time: Optional[str] = None
-    point_b_time: Optional[str] = None
+    # 상승 빗각
+    uptrend_point_a_time: Optional[str] = None
+    uptrend_point_second_time: Optional[str] = None
+    uptrend_point_b_time: Optional[str] = None
+    # 하락 빗각
+    downtrend_point_a_time: Optional[str] = None
+    downtrend_point_second_time: Optional[str] = None
+    downtrend_point_b_time: Optional[str] = None
 
 class DiagonalSettingResponse(BaseModel):
     id: int
-    diagonal_type: Optional[str]
-    point_a_time: Optional[str]
-    point_second_time: Optional[str]
-    point_b_time: Optional[str]
+    # 상승 빗각
+    uptrend_point_a_time: Optional[str]
+    uptrend_point_second_time: Optional[str]
+    uptrend_point_b_time: Optional[str]
+    # 하락 빗각
+    downtrend_point_a_time: Optional[str]
+    downtrend_point_second_time: Optional[str]
+    downtrend_point_b_time: Optional[str]
     
     class Config:
         from_attributes = True
@@ -196,7 +204,7 @@ async def get_diagonal_settings(db: Session = Depends(get_db)):
 
 @router.put("/diagonal-settings")
 async def update_diagonal_settings(setting_update: DiagonalSettingUpdate, db: Session = Depends(get_db)):
-    """빗각 분석 포인트 설정 수정"""
+    """빗각 분석 포인트 설정 수정 - 상승/하락 빗각 모두"""
     try:
         diagonal_setting = db.query(DiagonalSettings).first()
         
@@ -205,15 +213,21 @@ async def update_diagonal_settings(setting_update: DiagonalSettingUpdate, db: Se
             diagonal_setting = DiagonalSettings()
             db.add(diagonal_setting)
         
-        # 업데이트할 필드만 변경
-        if setting_update.diagonal_type is not None:
-            diagonal_setting.diagonal_type = setting_update.diagonal_type
-        if setting_update.point_a_time is not None:
-            diagonal_setting.point_a_time = setting_update.point_a_time
-        if setting_update.point_second_time is not None:
-            diagonal_setting.point_second_time = setting_update.point_second_time
-        if setting_update.point_b_time is not None:
-            diagonal_setting.point_b_time = setting_update.point_b_time
+        # 상승 빗각 필드 업데이트
+        if setting_update.uptrend_point_a_time is not None:
+            diagonal_setting.uptrend_point_a_time = setting_update.uptrend_point_a_time
+        if setting_update.uptrend_point_second_time is not None:
+            diagonal_setting.uptrend_point_second_time = setting_update.uptrend_point_second_time
+        if setting_update.uptrend_point_b_time is not None:
+            diagonal_setting.uptrend_point_b_time = setting_update.uptrend_point_b_time
+        
+        # 하락 빗각 필드 업데이트
+        if setting_update.downtrend_point_a_time is not None:
+            diagonal_setting.downtrend_point_a_time = setting_update.downtrend_point_a_time
+        if setting_update.downtrend_point_second_time is not None:
+            diagonal_setting.downtrend_point_second_time = setting_update.downtrend_point_second_time
+        if setting_update.downtrend_point_b_time is not None:
+            diagonal_setting.downtrend_point_b_time = setting_update.downtrend_point_b_time
         
         db.commit()
         db.refresh(diagonal_setting)
@@ -223,10 +237,14 @@ async def update_diagonal_settings(setting_update: DiagonalSettingUpdate, db: Se
             "message": "빗각 설정이 업데이트되었습니다",
             "setting": {
                 "id": diagonal_setting.id,
-                "diagonal_type": diagonal_setting.diagonal_type,
-                "point_a_time": diagonal_setting.point_a_time,
-                "point_second_time": diagonal_setting.point_second_time,
-                "point_b_time": diagonal_setting.point_b_time
+                # 상승 빗각
+                "uptrend_point_a_time": diagonal_setting.uptrend_point_a_time,
+                "uptrend_point_second_time": diagonal_setting.uptrend_point_second_time,
+                "uptrend_point_b_time": diagonal_setting.uptrend_point_b_time,
+                # 하락 빗각
+                "downtrend_point_a_time": diagonal_setting.downtrend_point_a_time,
+                "downtrend_point_second_time": diagonal_setting.downtrend_point_second_time,
+                "downtrend_point_b_time": diagonal_setting.downtrend_point_b_time
             }
         }
     except Exception as e:

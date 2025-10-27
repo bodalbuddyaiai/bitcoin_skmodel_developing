@@ -10,11 +10,7 @@ import {
   Alert,
   Box,
   Checkbox,
-  FormControlLabel,
-  Radio,
-  RadioGroup,
-  FormControl,
-  FormLabel
+  FormControlLabel
 } from '@mui/material';
 import { getSettings, updateSetting, getEmailSettings, updateEmailSettings, getDiagonalSettings, updateDiagonalSettings } from '../services/api';
 
@@ -32,12 +28,16 @@ function TradingSettings() {
   });
   const [originalEmailSettings, setOriginalEmailSettings] = useState({});
   
-  // 빗각 설정 상태
+  // 빗각 설정 상태 - 상승/하락 빗각 각각
   const [diagonalSettings, setDiagonalSettings] = useState({
-    diagonal_type: null,  // 'uptrend' 또는 'downtrend'
-    point_a_time: '',
-    point_second_time: '',
-    point_b_time: ''
+    // 상승 빗각
+    uptrend_point_a_time: '',
+    uptrend_point_second_time: '',
+    uptrend_point_b_time: '',
+    // 하락 빗각
+    downtrend_point_a_time: '',
+    downtrend_point_second_time: '',
+    downtrend_point_b_time: ''
   });
   const [originalDiagonalSettings, setOriginalDiagonalSettings] = useState({});
 
@@ -95,10 +95,14 @@ function TradingSettings() {
       
       if (response.id) {
         const diagonalData = {
-          diagonal_type: response.diagonal_type || null,
-          point_a_time: response.point_a_time || '',
-          point_second_time: response.point_second_time || '',
-          point_b_time: response.point_b_time || ''
+          // 상승 빗각
+          uptrend_point_a_time: response.uptrend_point_a_time || '',
+          uptrend_point_second_time: response.uptrend_point_second_time || '',
+          uptrend_point_b_time: response.uptrend_point_b_time || '',
+          // 하락 빗각
+          downtrend_point_a_time: response.downtrend_point_a_time || '',
+          downtrend_point_second_time: response.downtrend_point_second_time || '',
+          downtrend_point_b_time: response.downtrend_point_b_time || ''
         };
         setDiagonalSettings(diagonalData);
         setOriginalDiagonalSettings(diagonalData);
@@ -317,97 +321,109 @@ function TradingSettings() {
                     📐 빗각 분석 포인트 설정
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                    차트를 보면서 중요한 포인트의 시간을 입력하세요. 형식: YYYY-MM-DD HH:MM (예: 2025-10-11 06:00)
+                    상승 빗각과 하락 빗각을 모두 설정하여 더 정확한 분석을 받을 수 있습니다. 형식: YYYY-MM-DD HH:MM (예: 2025-10-11 06:00)
                   </Typography>
                   
                   <Grid container spacing={3}>
-                    {/* 빗각 타입 선택 */}
+                    {/* 상승 빗각 설정 */}
                     <Grid item xs={12}>
-                      <FormControl component="fieldset">
-                        <FormLabel component="legend">빗각 타입 선택</FormLabel>
-                        <RadioGroup
-                          value={diagonalSettings.diagonal_type || ''}
-                          onChange={(e) => handleDiagonalChange('diagonal_type', e.target.value || null)}
-                        >
-                          <FormControlLabel 
-                            value="uptrend" 
-                            control={<Radio />} 
-                            label="📈 상승 빗각 (상승 추세선)" 
-                            disabled={loading}
-                          />
-                          <FormControlLabel 
-                            value="downtrend" 
-                            control={<Radio />} 
-                            label="📉 하락 빗각 (하락 추세선)" 
-                            disabled={loading}
-                          />
-                        </RadioGroup>
-                      </FormControl>
+                      <Box sx={{ 
+                        border: '2px solid #4caf50', 
+                        borderRadius: 2, 
+                        p: 2, 
+                        bgcolor: '#f1f8f4' 
+                      }}>
+                        <Typography variant="h6" gutterBottom sx={{ color: '#2e7d32' }}>
+                          📈 상승 빗각 (저점 연결)
+                        </Typography>
+                        
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              label="Point A (역사적 저점) 시간"
+                              value={diagonalSettings.uptrend_point_a_time}
+                              onChange={(e) => handleDiagonalChange('uptrend_point_a_time', e.target.value)}
+                              disabled={loading}
+                              placeholder="2025-10-11 06:00"
+                              helperText="전체 데이터에서 가장 낮은 지점"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              label="두 번째 저점 시간"
+                              value={diagonalSettings.uptrend_point_second_time}
+                              onChange={(e) => handleDiagonalChange('uptrend_point_second_time', e.target.value)}
+                              disabled={loading}
+                              placeholder="2025-10-17 19:00"
+                              helperText="Point A 이후 형성된 의미있는 저점"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              label="Point B (변곡점) 시간"
+                              value={diagonalSettings.uptrend_point_b_time}
+                              onChange={(e) => handleDiagonalChange('uptrend_point_b_time', e.target.value)}
+                              disabled={loading}
+                              placeholder="2025-10-16 23:00"
+                              helperText="거래량 터지며 급락 시작 지점"
+                            />
+                          </Grid>
+                        </Grid>
+                      </Box>
                     </Grid>
                     
-                    {/* 포인트 입력 필드 */}
-                    {diagonalSettings.diagonal_type && (
-                      <Grid item xs={12}>
-                        <Box sx={{ 
-                          border: '1px solid #e0e0e0', 
-                          borderRadius: 2, 
-                          p: 2, 
-                          bgcolor: diagonalSettings.diagonal_type === 'uptrend' ? '#f5f5f5' : '#fff3e0' 
-                        }}>
-                          <Typography variant="h6" gutterBottom>
-                            {diagonalSettings.diagonal_type === 'uptrend' ? 
-                              '📈 상승 빗각 포인트 입력' : 
-                              '📉 하락 빗각 포인트 입력'}
-                          </Typography>
-                          
-                          <Grid container spacing={2}>
-                            <Grid item xs={12} md={4}>
-                              <TextField
-                                fullWidth
-                                label={diagonalSettings.diagonal_type === 'uptrend' ? 
-                                  "Point A (역사적 저점) 시간" : 
-                                  "Point A (역사적 고점) 시간"}
-                                value={diagonalSettings.point_a_time}
-                                onChange={(e) => handleDiagonalChange('point_a_time', e.target.value)}
-                                disabled={loading}
-                                placeholder="2025-10-11 06:00"
-                                helperText={diagonalSettings.diagonal_type === 'uptrend' ? 
-                                  "전체 데이터에서 가장 낮은 지점" : 
-                                  "전체 데이터에서 가장 높은 지점"}
-                              />
-                            </Grid>
-                            <Grid item xs={12} md={4}>
-                              <TextField
-                                fullWidth
-                                label={diagonalSettings.diagonal_type === 'uptrend' ? 
-                                  "두 번째 저점 시간" : 
-                                  "두 번째 고점 시간"}
-                                value={diagonalSettings.point_second_time}
-                                onChange={(e) => handleDiagonalChange('point_second_time', e.target.value)}
-                                disabled={loading}
-                                placeholder="2025-10-17 19:00"
-                                helperText={diagonalSettings.diagonal_type === 'uptrend' ? 
-                                  "Point A 이후 형성된 의미있는 저점" : 
-                                  "Point A 이후 형성된 의미있는 고점"}
-                              />
-                            </Grid>
-                            <Grid item xs={12} md={4}>
-                              <TextField
-                                fullWidth
-                                label="Point B (변곡점) 시간"
-                                value={diagonalSettings.point_b_time}
-                                onChange={(e) => handleDiagonalChange('point_b_time', e.target.value)}
-                                disabled={loading}
-                                placeholder="2025-10-17 01:00"
-                                helperText={diagonalSettings.diagonal_type === 'uptrend' ? 
-                                  "거래량 터지며 급락 시작 지점" : 
-                                  "거래량 터지며 급등 시작 지점"}
-                              />
-                            </Grid>
+                    {/* 하락 빗각 설정 */}
+                    <Grid item xs={12}>
+                      <Box sx={{ 
+                        border: '2px solid #f44336', 
+                        borderRadius: 2, 
+                        p: 2, 
+                        bgcolor: '#fff5f5' 
+                      }}>
+                        <Typography variant="h6" gutterBottom sx={{ color: '#c62828' }}>
+                          📉 하락 빗각 (고점 연결)
+                        </Typography>
+                        
+                        <Grid container spacing={2}>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              label="Point A (역사적 고점) 시간"
+                              value={diagonalSettings.downtrend_point_a_time}
+                              onChange={(e) => handleDiagonalChange('downtrend_point_a_time', e.target.value)}
+                              disabled={loading}
+                              placeholder="2025-10-05 13:00"
+                              helperText="전체 데이터에서 가장 높은 지점"
+                            />
                           </Grid>
-                        </Box>
-                      </Grid>
-                    )}
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              label="두 번째 고점 시간"
+                              value={diagonalSettings.downtrend_point_second_time}
+                              onChange={(e) => handleDiagonalChange('downtrend_point_second_time', e.target.value)}
+                              disabled={loading}
+                              placeholder="2025-10-20 08:00"
+                              helperText="Point A 이후 형성된 의미있는 고점"
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              fullWidth
+                              label="Point B (변곡점) 시간"
+                              value={diagonalSettings.downtrend_point_b_time}
+                              onChange={(e) => handleDiagonalChange('downtrend_point_b_time', e.target.value)}
+                              disabled={loading}
+                              placeholder="2025-10-18 14:00"
+                              helperText="거래량 터지며 급등 시작 지점"
+                            />
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    </Grid>
                     
                     {/* 저장 버튼 */}
                     <Grid item xs={12}>

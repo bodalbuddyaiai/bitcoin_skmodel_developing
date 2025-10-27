@@ -23,18 +23,26 @@ class EmailSettings(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
 class DiagonalSettings(Base):
-    """빗각 분석 포인트 설정 테이블"""
+    """빗각 분석 포인트 설정 테이블 - 상승/하락 빗각 동시 활용"""
     __tablename__ = "diagonal_settings"
     
     id = Column(Integer, primary_key=True, index=True)
     
-    # 빗각 타입 선택 (uptrend 또는 downtrend 중 하나만)
-    diagonal_type = Column(String, nullable=True)  # 'uptrend' 또는 'downtrend'
+    # 상승 빗각 (저점 연결) 설정
+    uptrend_point_a_time = Column(String, nullable=True)  # Point A (역사적 저점) 시간
+    uptrend_point_second_time = Column(String, nullable=True)  # 두 번째 저점 시간
+    uptrend_point_b_time = Column(String, nullable=True)  # 변곡점 시간
     
-    # 포인트 시간 설정 (YYYY-MM-DD HH:MM 형식)
-    point_a_time = Column(String, nullable=True)  # Point A (역사적 저점 또는 고점) 시간
-    point_second_time = Column(String, nullable=True)  # 두 번째 저점 또는 고점 시간
-    point_b_time = Column(String, nullable=True)  # 변곡점 시간
+    # 하락 빗각 (고점 연결) 설정
+    downtrend_point_a_time = Column(String, nullable=True)  # Point A (역사적 고점) 시간
+    downtrend_point_second_time = Column(String, nullable=True)  # 두 번째 고점 시간
+    downtrend_point_b_time = Column(String, nullable=True)  # 변곡점 시간
+    
+    # 레거시 필드 (하위 호환성 유지 - 사용 안 함)
+    diagonal_type = Column(String, nullable=True)  # deprecated
+    point_a_time = Column(String, nullable=True)  # deprecated
+    point_second_time = Column(String, nullable=True)  # deprecated
+    point_b_time = Column(String, nullable=True)  # deprecated
     
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 

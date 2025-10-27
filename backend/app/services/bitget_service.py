@@ -393,11 +393,20 @@ class BitgetService:
                 "size": size,
                 "side": side,
                 "orderType": "market",
-                "presetStopLossPrice": stop_loss_price,
-                "presetStopSurplusPrice": take_profit_price
+                # ✅ Preset TPSL을 주문과 함께 설정 (가장 안정적인 방법)
+                "presetStopSurplusPrice": str(take_profit_price),
+                "presetStopLossPrice": str(stop_loss_price)
             }
             
+            print(f"\n=== 주문 생성 요청 (TPSL 포함) ===")
+            print(f"Body: {json.dumps(body, indent=2)}")
+            print(f"Take Profit 가격: {take_profit_price}")
+            print(f"Stop Loss 가격: {stop_loss_price}")
+            
             order_result = self._make_request("POST", endpoint, body=body)
+            
+            print(f"\n=== 주문 생성 결과 ===")
+            print(f"결과: {json.dumps(order_result, indent=2) if order_result else 'None'}")
             
             if not order_result:
                 raise Exception("No response from order API")
@@ -405,6 +414,8 @@ class BitgetService:
             if order_result.get('code') != '00000':
                 error_msg = order_result.get('msg', 'Unknown error')
                 raise Exception(f"Order failed: {error_msg}")
+            
+            print(f"\n✅ 주문 체결 및 TPSL 설정 완료 (Preset 방식)")
             
             if expected_minutes:
                 self.expected_close_time = datetime.now() + timedelta(minutes=expected_minutes)
@@ -925,6 +936,73 @@ class BitgetService:
             print(f"Plan Order 취소 중 오류: {str(e)}")
             return None
 
+    def find_candle_by_time(self, candles, target_time_str):
+        """
+        캔들 데이터에서 특정 시간과 일치하는 캔들 찾기
+        
+        Args:
+            candles: 캔들 데이터 리스트 (각 캔들은 timestamp 필드 포함)
+            target_time_str: 찾을 시간 문자열 (예: "2025-10-11 06:00")
+        
+        Returns:
+            dict: 찾은 캔들 정보 (index, timestamp, low/high, volume 등)
+                  찾지 못하면 None 반환
+        """
+        try:
+            print(f"\n=== 캔들 검색 시작 ===")
+            print(f"검색 대상 시간: {target_time_str}")
+            print(f"전체 캔들 개수: {len(candles)}")
+            
+            # 목표 시간을 분 단위까지만 파싱 (초는 무시)
+            # "YYYY-MM-DD HH:MM" 또는 "YYYY-MM-DD HH:MM:SS" 형식 모두 지원
+            target_time_parts = target_time_str.strip().split(':')
+            if len(target_time_parts) >= 2:
+                target_time_minute = ':'.join(target_time_parts[:2])  # YYYY-MM-DD HH:MM까지만
+            else:
+                target_time_minute = target_time_str.strip()
+            
+            print(f"파싱된 목표 시간 (분 단위): {target_time_minute}")
+            
+            # 캔들 리스트 순회
+            for idx, candle in enumerate(candles):
+                candle_timestamp_ms = candle.get('timestamp', 0)
+                
+                if candle_timestamp_ms > 0:
+                    # UTC 시간으로 변환 후 KST로 변환
+                    from datetime import datetime, timedelta
+                    dt_utc = datetime.utcfromtimestamp(candle_timestamp_ms / 1000)
+                    dt_kst = dt_utc + timedelta(hours=9)
+                    
+                    # 분 단위까지만 문자열로 변환 (YYYY-MM-DD HH:MM)
+                    candle_time_str = dt_kst.strftime('%Y-%m-%d %H:%M')
+                    
+                    # 목표 시간과 비교 (분 단위까지만)
+                    if candle_time_str == target_time_minute:
+                        print(f"✅ 캔들 발견! 인덱스: {idx}, 시간: {candle_time_str}")
+                        
+                        # 캔들 정보 반환
+                        result = {
+                            'index': idx,
+                            'timestamp': candle_time_str,
+                            'timestamp_ms': candle_timestamp_ms,
+                            'open': candle.get('open'),
+                            'high': candle.get('high'),
+                            'low': candle.get('low'),
+                            'close': candle.get('close'),
+                            'volume': candle.get('volume')
+                        }
+                        print(f"반환 정보: {result}")
+                        return result
+            
+            print(f"⚠️ 해당 시간의 캔들을 찾지 못했습니다.")
+            return None
+            
+        except Exception as e:
+            print(f"캔들 검색 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+
     def update_position_tpsl(self, stop_loss_roe, take_profit_roe):
         """
         현재 포지션의 Take Profit과 Stop Loss 업데이트
@@ -962,7 +1040,7 @@ class BitgetService:
                     'message': "활성 포지션이 없습니다."
                 }
             
-            # 현재가 조회
+            # 현재가 조회 (모니터링 시점 기준)
             ticker = self.get_ticker()
             if not ticker or 'data' not in ticker or not ticker['data']:
                 return {
@@ -971,22 +1049,30 @@ class BitgetService:
                 }
             
             current_price = float(ticker['data'][0]['lastPr'])
-            hold_side = active_position.get('holdSide')  # 'long' 또는 'short'
+            position_hold_side = active_position.get('holdSide')  # 포지션의 holdSide ('long' 또는 'short')
             position_size = active_position.get('total')
+            entry_price = float(active_position.get('openPriceAvg', 0))
             
-            # 가격 계산
-            if hold_side == 'long':
+            # One-way 모드: Plan Order API용 holdSide 변환
+            # 포지션의 holdSide ('long'/'short') → Plan Order holdSide ('buy'/'sell')
+            hold_side = 'buy' if position_hold_side == 'long' else 'sell'
+            
+            # ⚠️ 모니터링 분석: 현재가를 기준으로 TPSL 가격 계산
+            # (모니터링 시점에서 새로 분석하는 것이므로 현재가 기준이 맞음)
+            if position_hold_side == 'long':
                 stop_loss_price = round(current_price * (1 - (stop_loss_roe / 100)), 1)
                 take_profit_price = round(current_price * (1 + (take_profit_roe / 100)), 1)
             else:  # short
                 stop_loss_price = round(current_price * (1 + (stop_loss_roe / 100)), 1)
                 take_profit_price = round(current_price * (1 - (take_profit_roe / 100)), 1)
             
-            print(f"포지션 방향: {hold_side}")
+            print(f"포지션 방향: {position_hold_side}")
+            print(f"Plan Order holdSide (One-way 모드): {hold_side}")
             print(f"포지션 크기: {position_size}")
-            print(f"현재가: {current_price}")
-            print(f"새 Stop Loss 가격: {stop_loss_price}")
-            print(f"새 Take Profit 가격: {take_profit_price}")
+            print(f"진입가: {entry_price}")
+            print(f"현재가: {current_price} (TPSL 계산 기준)")
+            print(f"새 Stop Loss ROE: {stop_loss_roe}% → 가격: {stop_loss_price}")
+            print(f"새 Take Profit ROE: {take_profit_roe}% → 가격: {take_profit_price}")
             
             # 1단계: 기존 TPSL Plan Order 조회
             print("\n[1단계] 기존 TPSL Plan Order 조회 중...")
@@ -994,26 +1080,34 @@ class BitgetService:
             # 모든 Plan Order 조회 (planType 파라미터 없이)
             all_orders = self.get_plan_orders(plan_type=None)
             
+            print(f"\n📋 Plan Order 조회 결과:")
+            print(f"  응답 코드: {all_orders.get('code') if all_orders else 'None'}")
+            print(f"  전체 응답: {json.dumps(all_orders, indent=2) if all_orders else 'None'}")
+            
             existing_tp_order = None
             existing_sl_order = None
             
             # Plan Order가 있는지 확인
             if all_orders and all_orders.get('code') == '00000' and all_orders.get('data'):
                 order_list = all_orders['data'].get('entrustedList', [])
+                print(f"  Plan Order 개수: {len(order_list)}")
                 
                 # BTCUSDT 심볼의 TPSL Order 찾기
                 for order in order_list:
+                    print(f"  - Order: symbol={order.get('symbol')}, planType={order.get('planType')}, orderId={order.get('orderId')}")
                     if order.get('symbol') == 'BTCUSDT':
                         order_plan_type = order.get('planType')
                         
                         if order_plan_type == 'pos_profit':
                             existing_tp_order = order
-                            print(f"기존 Take Profit Order 발견: {order.get('orderId')}")
+                            print(f"  ✅ 기존 Take Profit Order 발견: {order.get('orderId')}, 현재 가격: {order.get('triggerPrice')}")
                         elif order_plan_type == 'pos_loss':
                             existing_sl_order = order
-                            print(f"기존 Stop Loss Order 발견: {order.get('orderId')}")
+                            print(f"  ✅ 기존 Stop Loss Order 발견: {order.get('orderId')}, 현재 가격: {order.get('triggerPrice')}")
             else:
-                print(f"기존 Plan Order 조회 실패 또는 없음: {all_orders}")
+                print(f"  ⚠️ 기존 Plan Order 조회 실패 또는 없음")
+                if all_orders:
+                    print(f"  응답 메시지: {all_orders.get('msg', 'No message')}")
             
             # 2단계: TPSL Order 수정 또는 생성
             print("\n[2단계] TPSL Order 수정/생성 중...")
