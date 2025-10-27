@@ -483,7 +483,7 @@ EXPECTED_MINUTES: [480-1440] (HOLD 시 생략)
                     "temperature": 1.0,   # Opus 4.1과 Sonnet 4.5는 temperature만 사용
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 5000  # thinking 토큰을 줄여서 text 응답에 더 많이 할당
+                        "budget_tokens": 2000  # thinking 토큰을 줄여서 text 응답에 더 많이 할당
                     },
                     "system": system_prompt,
                     "messages": [
@@ -501,7 +501,7 @@ EXPECTED_MINUTES: [480-1440] (HOLD 시 생략)
                     "top_p": 0.95,        # Extended Thinking 사용 시 0.95 이상이어야 함
                     "thinking": {         # Extended Thinking 활성화
                         "type": "enabled",
-                        "budget_tokens": 5000  # thinking 토큰을 줄여서 text 응답에 더 많이 할당
+                        "budget_tokens": 2000  # thinking 토큰을 줄여서 text 응답에 더 많이 할당
                     },
                     "system": system_prompt,
                     "messages": [

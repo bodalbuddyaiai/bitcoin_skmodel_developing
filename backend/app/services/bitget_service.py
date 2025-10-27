@@ -892,7 +892,7 @@ class BitgetService:
             endpoint = "/api/v2/mix/order/orders-plan-pending"
             params = {
                 "symbol": "BTCUSDT",
-                "productType": "USDT-FUTURES"
+                "productType": "usdt-futures"  # ⚠️ 소문자 사용 (Plan Order API는 소문자 요구)
             }
             
             # planType은 선택적 파라미터이므로 None이 아닐 때만 추가
@@ -923,7 +923,7 @@ class BitgetService:
             endpoint = "/api/v2/mix/order/cancel-plan-order"
             body = {
                 "symbol": "BTCUSDT",
-                "productType": "USDT-FUTURES",
+                "productType": "usdt-futures",  # ⚠️ 소문자 사용
                 "marginCoin": "USDT",
                 "orderId": order_id,
                 "planType": plan_type
@@ -1124,7 +1124,7 @@ class BitgetService:
                 tp_modify_body = {
                     "orderId": existing_tp_order.get('orderId'),
                     "marginCoin": "USDT",
-                    "productType": "USDT-FUTURES",
+                    "productType": "usdt-futures",  # ⚠️ 소문자 사용
                     "symbol": "BTCUSDT",
                     "triggerPrice": str(take_profit_price),
                     "triggerType": "mark_price",  # 마크 프라이스 기준
@@ -1141,8 +1141,7 @@ class BitgetService:
                 
                 tp_place_body = {
                     "symbol": "BTCUSDT",
-                    "productType": "USDT-FUTURES",
-                    "marginMode": "isolated",
+                    "productType": "usdt-futures",  # ⚠️ 소문자 사용
                     "marginCoin": "USDT",
                     "planType": "pos_profit",
                     "triggerPrice": str(take_profit_price),
@@ -1164,7 +1163,7 @@ class BitgetService:
                 sl_modify_body = {
                     "orderId": existing_sl_order.get('orderId'),
                     "marginCoin": "USDT",
-                    "productType": "USDT-FUTURES",
+                    "productType": "usdt-futures",  # ⚠️ 소문자 사용
                     "symbol": "BTCUSDT",
                     "triggerPrice": str(stop_loss_price),
                     "triggerType": "mark_price",  # 마크 프라이스 기준
@@ -1181,8 +1180,7 @@ class BitgetService:
                 
                 sl_place_body = {
                     "symbol": "BTCUSDT",
-                    "productType": "USDT-FUTURES",
-                    "marginMode": "isolated",
+                    "productType": "usdt-futures",  # ⚠️ 소문자 사용
                     "marginCoin": "USDT",
                     "planType": "pos_loss",
                     "triggerPrice": str(stop_loss_price),
