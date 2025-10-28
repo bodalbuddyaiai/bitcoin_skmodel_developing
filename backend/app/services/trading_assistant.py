@@ -211,7 +211,7 @@ class TradingAssistant:
             }
     
     def _get_diagonal_settings(self):
-        """데이터베이스에서 빗각 설정 로드 - 상승/하락 빗각 모두"""
+        """데이터베이스에서 빗각 설정 로드 - 상승/하락 빗각 모두 (레거시 호환)"""
         try:
             from app.models.trading_settings import DiagonalSettings
             db = next(get_db())
@@ -219,18 +219,49 @@ class TradingAssistant:
             diagonal_setting = db.query(DiagonalSettings).first()
             
             if diagonal_setting:
+                # 새 필드 값 확인
+                uptrend_a = diagonal_setting.uptrend_point_a_time
+                uptrend_second = diagonal_setting.uptrend_point_second_time
+                uptrend_b = diagonal_setting.uptrend_point_b_time
+                downtrend_a = diagonal_setting.downtrend_point_a_time
+                downtrend_second = diagonal_setting.downtrend_point_second_time
+                downtrend_b = diagonal_setting.downtrend_point_b_time
+                
+                # 🔄 레거시 필드 호환성: 새 필드가 비어있으면 레거시 필드 확인
+                if not uptrend_a and not downtrend_a:
+                    # 레거시 필드에 값이 있는지 확인
+                    legacy_type = diagonal_setting.diagonal_type
+                    legacy_a = diagonal_setting.point_a_time
+                    legacy_second = diagonal_setting.point_second_time
+                    legacy_b = diagonal_setting.point_b_time
+                    
+                    if legacy_type and legacy_a and legacy_second and legacy_b:
+                        print(f"⚠️ 레거시 빗각 설정 발견: {legacy_type}")
+                        print(f"   레거시 → 새 형식으로 변환 중...")
+                        
+                        if legacy_type == 'uptrend':
+                            uptrend_a = legacy_a
+                            uptrend_second = legacy_second
+                            uptrend_b = legacy_b
+                        elif legacy_type == 'downtrend':
+                            downtrend_a = legacy_a
+                            downtrend_second = legacy_second
+                            downtrend_b = legacy_b
+                        
+                        print(f"   ✅ 레거시 설정 변환 완료")
+                
                 result = {
                     # 상승 빗각 설정
                     'uptrend': {
-                        'point_a_time': diagonal_setting.uptrend_point_a_time,
-                        'point_second_time': diagonal_setting.uptrend_point_second_time,
-                        'point_b_time': diagonal_setting.uptrend_point_b_time,
+                        'point_a_time': uptrend_a,
+                        'point_second_time': uptrend_second,
+                        'point_b_time': uptrend_b,
                     },
                     # 하락 빗각 설정
                     'downtrend': {
-                        'point_a_time': diagonal_setting.downtrend_point_a_time,
-                        'point_second_time': diagonal_setting.downtrend_point_second_time,
-                        'point_b_time': diagonal_setting.downtrend_point_b_time,
+                        'point_a_time': downtrend_a,
+                        'point_second_time': downtrend_second,
+                        'point_b_time': downtrend_b,
                     }
                 }
             else:
@@ -246,6 +277,10 @@ class TradingAssistant:
                         'point_b_time': None,
                     }
                 }
+            
+            print(f"빗각 설정 로드 완료:")
+            print(f"  - 상승 빗각: {result['uptrend']}")
+            print(f"  - 하락 빗각: {result['downtrend']}")
             
             db.close()
             return result
