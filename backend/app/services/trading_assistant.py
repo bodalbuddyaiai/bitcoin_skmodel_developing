@@ -2810,6 +2810,31 @@ class TradingAssistant:
                 print("\n=== 재분석 시작: 청산 플래그 초기화 ===")
                 self.reset_liquidation_flag()
             
+            # 포지션 체크 - 이미 포지션이 있으면 본분석 중단
+            print("\n=== 포지션 상태 체크 (본분석 시작 전) ===")
+            current_positions = self.bitget.get_positions()
+            if current_positions and 'data' in current_positions:
+                for pos in current_positions['data']:
+                    if float(pos.get('total', 0)) > 0:
+                        print("⚠️ 이미 포지션이 존재합니다. 본분석을 중단하고 다음 예약 시간까지 대기합니다.")
+                        print(f"   포지션 방향: {pos.get('holdSide')}")
+                        print(f"   포지션 크기: {pos.get('total')}")
+                        
+                        # HOLD와 동일하게 처리 - 설정된 시간 후 재분석
+                        if schedule_next:
+                            reanalysis_minutes = self.settings.get('normal_reanalysis_minutes', 60)
+                            next_time = datetime.now() + timedelta(minutes=reanalysis_minutes)
+                            print(f"포지션 존재로 인해 {reanalysis_minutes}분 후({next_time.strftime('%Y-%m-%d %H:%M:%S')})에 재분석을 수행합니다.")
+                            await self._schedule_next_analysis(next_time)
+                        
+                        return {
+                            "success": True,
+                            "action": "SKIP",
+                            "reason": "이미 포지션이 존재하여 본분석을 건너뜁니다."
+                        }
+            
+            print("✅ 포지션 없음 - 본분석 진행")
+            
             # 현재 시장 데이터 수집
             market_data = await self._collect_market_data()
             if not market_data:
@@ -2832,6 +2857,12 @@ class TradingAssistant:
             if analysis_result['action'] in ['ENTER_LONG', 'ENTER_SHORT']:
                 # expected_minutes 먼저 추출
                 expected_minutes = analysis_result.get('expected_minutes', 240)
+                
+                # 포지션 진입 전 기존 작업들 정리
+                print("\n=== 포지션 진입 전 기존 작업 정리 ===")
+                self._cancel_force_close_job()  # 기존 FORCE_CLOSE 및 MONITORING 작업 취소
+                self._cancel_scheduled_analysis()  # 기존 본분석 작업 취소
+                print("기존 스케줄링된 작업들이 모두 취소되었습니다.")
                 
                 # 포지션 진입 처리 (expected_minutes 전달)
                 trade_result = await self._execute_trade(
@@ -2891,8 +2922,8 @@ class TradingAssistant:
     async def _schedule_next_analysis(self, next_time):
         """다음 분석 작업 스케줄링"""
         try:
-            # 기존 분석 작업 취소
-            self.scheduler.remove_all_jobs()
+            # 기존 본분석 작업만 취소 (포지션의 모니터링/강제청산 작업은 유지)
+            self._cancel_scheduled_analysis()
             
             # 새로운 분석 작업 스케줄링
             def async_job_wrapper(job_id):
@@ -4038,8 +4069,11 @@ class TradingAssistant:
                         # 청산 플래그 설정
                         self._liquidation_detected = True
                         
-                        # FORCE_CLOSE 작업 취소
-                        self._cancel_force_close_job()
+                        # 모든 스케줄링된 작업 취소 (모니터링, 강제청산, 본분석)
+                        print("\n=== TPSL 청산 감지: 모든 스케줄링된 작업 취소 ===")
+                        self._cancel_force_close_job()  # FORCE_CLOSE 및 MONITORING 작업 취소
+                        self._cancel_scheduled_analysis()  # 본분석 작업 취소
+                        print("모든 스케줄링된 작업이 취소되었습니다.")
                         
                         # 현재 가격 조회하여 청산 원인 판단
                         ticker = self.bitget.get_ticker()
