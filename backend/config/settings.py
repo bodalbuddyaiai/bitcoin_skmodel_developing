@@ -23,6 +23,9 @@ OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 # Claude API 설정
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 
+# DeepSeek API 설정
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+
 # 이메일 설정
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = os.getenv("SMTP_PORT", "587")

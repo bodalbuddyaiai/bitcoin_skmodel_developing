@@ -1,16 +1,18 @@
 from .openai_service import OpenAIService
 from .claude_service import ClaudeService
+from .deepseek_service import DeepSeekService
 
 class AIService:
     def __init__(self):
         self.openai_service = OpenAIService()
         self.claude_service = ClaudeService()
+        self.deepseek_service = DeepSeekService()
         self.current_model = "gpt"  # 기본값은 GPT
     
     def set_model(self, model_type):
         """AI 모델 설정
         Args:
-            model_type (str): 모델 타입 ('openai', 'claude', 'claude-opus', 'claude-opus-4.1', 'claude-sonnet-4.5')
+            model_type (str): 모델 타입 ('openai', 'claude', 'claude-opus', 'claude-opus-4.1', 'claude-sonnet-4.5', 'deepseek-chat', 'deepseek-reasoner')
         """
         if model_type in ['openai', 'gpt']:
             self.current_model = 'openai'
@@ -30,6 +32,14 @@ class AIService:
             self.current_model = 'claude-sonnet-4.5'
             # Claude 서비스에 모델 타입 설정
             self.claude_service.set_model_type('claude-sonnet-4.5')
+        elif model_type in ['deepseek-chat', 'deepseek']:
+            self.current_model = 'deepseek-chat'
+            # DeepSeek 서비스에 모델 타입 설정 (Non-Thinking Mode)
+            self.deepseek_service.set_model_type('deepseek-chat')
+        elif model_type in ['deepseek-reasoner', 'deepseek-thinking']:
+            self.current_model = 'deepseek-reasoner'
+            # DeepSeek 서비스에 모델 타입 설정 (Thinking Mode)
+            self.deepseek_service.set_model_type('deepseek-reasoner')
         else:
             print(f"알 수 없는 모델 타입: {model_type}")
             return False
@@ -55,6 +65,8 @@ class AIService:
             return await self.openai_service.analyze_market_data(market_data)
         elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1", "claude-sonnet-4.5"]:
             return await self.claude_service.analyze_market_data(market_data)
+        elif self.current_model in ["deepseek-chat", "deepseek-reasoner"]:
+            return await self.deepseek_service.analyze_market_data(market_data)
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}")
     
@@ -66,5 +78,9 @@ class AIService:
         elif self.current_model in ["claude", "claude-opus", "claude-opus-4.1", "claude-sonnet-4.5"]:
             # Claude는 entry_analysis_reason을 전달
             return await self.claude_service.monitor_position(market_data, position_info, entry_analysis_reason)
+        elif self.current_model in ["deepseek-chat", "deepseek-reasoner"]:
+            # DeepSeek는 현재 monitor_position을 지원하지 않음 (필요 시 추가 구현)
+            print("DeepSeek 모델은 포지션 모니터링을 지원하지 않습니다.")
+            return None
         else:
             raise ValueError(f"알 수 없는 모델 타입: {self.current_model}") 

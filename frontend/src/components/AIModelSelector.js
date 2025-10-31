@@ -100,6 +100,10 @@ const AIModelSelector = () => {
         return 'Anthropic Claude-Opus-4.1 모델을 사용하여 시장 분석을 수행합니다. (최신 최고 성능, 우수한 추론 능력)';
       case 'claude-sonnet-4.5':
         return 'Anthropic Claude-Sonnet-4.5 모델을 사용하여 시장 분석을 수행합니다. (2025년 최신 모델, 향상된 추론 능력)';
+      case 'deepseek-chat':
+        return 'DeepSeek AI Non-Thinking Mode를 사용하여 시장 분석을 수행합니다. (빠른 분석)';
+      case 'deepseek-reasoner':
+        return 'DeepSeek AI Thinking Mode를 사용하여 시장 분석을 수행합니다. (심층 추론 분석)';
       default:
         return '';
     }
@@ -117,6 +121,10 @@ const AIModelSelector = () => {
         return 'error';
       case 'claude-sonnet-4.5':
         return 'success';
+      case 'deepseek-chat':
+        return 'info';
+      case 'deepseek-reasoner':
+        return 'secondary';
       default:
         return 'default';
     }
@@ -227,6 +235,34 @@ const AIModelSelector = () => {
                   </Typography>
                   <Typography variant="caption" sx={{ opacity: 0.8 }}>
                     2025년 최신 Claude-Sonnet-4.5 모델 - 향상된 추론 능력
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="deepseek-chat"
+              control={<Radio />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">
+                    DeepSeek AI (Non-Thinking Mode) ⚡
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                    빠른 분석 모드 - DeepSeek-V3.2-Exp
+                  </Typography>
+                </Box>
+              }
+            />
+            <FormControlLabel
+              value="deepseek-reasoner"
+              control={<Radio />}
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">
+                    DeepSeek AI (Thinking Mode) 🧠
+                  </Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                    심층 추론 분석 모드 - DeepSeek-V3.2-Exp
                   </Typography>
                 </Box>
               }
