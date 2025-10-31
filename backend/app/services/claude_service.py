@@ -445,7 +445,7 @@ class ClaudeService:
 ## TRADING_DECISION
 ACTION: [ENTER_LONG/ENTER_SHORT/HOLD]
 POSITION_SIZE: [0.3-0.9] (HOLD 시 생략)
-LEVERAGE: [20-80 정수] (HOLD 시 생략)
+LEVERAGE: [10-50 정수] (HOLD 시 생략)
 STOP_LOSS_ROE: [0.20-1.20 소수점 2자리, 레버리지를 곱하지 말 것] (HOLD 시 생략)
 TAKE_PROFIT_ROE: [0.50-4.50 소수점 2자리, 레버리지를 곱하지 말 것] (HOLD 시 생략)
 EXPECTED_MINUTES: [480-1440] (HOLD 시 생략)
@@ -832,7 +832,6 @@ EXPECTED_MINUTES: [480-1440] (HOLD 시 생략)
 
 ### 시스템 동작원리:
 - 한번 포지션 진입하면 부분 청산, 추가 진입 불가능
-- 한번 포지션 진입하면 레버리지, take_profit_roe, stop_loss_roe 변경 불가능
 - take_profit_roe, stop_loss_roe에 도달하면 자동 청산
 - HOLD 시 일정시간 이후 재분석, 진입 시 expected_minutes 후 강제 청산
 - expected_minutes 시간 동안 포지션 유지되면 강제 포지션 청산 후 일정시간 이후 재분석 수행하여 다시 포지션 진입 결정
