@@ -960,9 +960,9 @@ async def set_ai_model(request: Request):
         body = await request.json()
         model_type = body.get("model", "gpt")
         
-        # 모델 타입 검증 - claude-opus, claude-opus-4.1, claude-sonnet-4.5 추가
-        if model_type.lower() not in ["gpt", "openai", "claude", "anthropic", "claude-opus", "opus", "claude-opus-4.1", "opus-4.1", "claude-sonnet-4.5", "sonnet-4.5"]:
-            raise HTTPException(status_code=400, detail="지원하지 않는 모델 타입입니다. (gpt, claude, claude-opus, claude-opus-4.1, claude-sonnet-4.5만 지원)")
+        # 모델 타입 검증 - claude-opus, claude-opus-4.1, claude-sonnet-4.5, deepseek 추가
+        if model_type.lower() not in ["gpt", "openai", "claude", "anthropic", "claude-opus", "opus", "claude-opus-4.1", "opus-4.1", "claude-sonnet-4.5", "sonnet-4.5", "deepseek-chat", "deepseek-reasoner"]:
+            raise HTTPException(status_code=400, detail="지원하지 않는 모델 타입입니다. (gpt, claude, claude-opus, claude-opus-4.1, claude-sonnet-4.5, deepseek-chat, deepseek-reasoner만 지원)")
         
         # AI 모델 설정
         success = trading_assistant.ai_service.set_model(model_type)
