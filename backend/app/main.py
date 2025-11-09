@@ -608,6 +608,7 @@ async def start_trading():
                             args=[new_job_id]
                         )
                         trading_assistant.active_jobs[new_job_id] = {
+                            "type": "analysis",  # 분석 작업임을 명시 (취소 시 필터링용)
                             "scheduled_time": next_analysis_time.isoformat(),
                             "analysis_result": None
                         }

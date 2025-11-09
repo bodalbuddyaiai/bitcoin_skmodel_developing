@@ -2971,6 +2971,14 @@ class TradingAssistant:
                 misfire_grace_time=300  # 5분의 유예 시간 추가
             )
             
+            # active_jobs에 작업 추가 (취소 시 필터링용)
+            self.active_jobs[job_id] = {
+                "type": JobType.ANALYSIS,
+                "scheduled_time": next_time.isoformat(),
+                "status": "scheduled",
+                "reason": "재분석 작업"
+            }
+            
             print(f"\n=== 다음 분석 작업 예약됨 ===")
             print(f"예약 시간: {next_time}")
             print(f"Job ID: {job_id}")
